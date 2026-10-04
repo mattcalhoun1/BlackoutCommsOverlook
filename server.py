@@ -116,6 +116,15 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
             return
+        if path == "/blackout-comms-logo.png":
+            data = (STATIC / "blackout-comms-logo.png").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path == "/api/state":
             body = store.snapshot()
             current = session.load()
@@ -208,14 +217,18 @@ def main() -> None:
     parser.add_argument("--simulate", action="store_true", help="demo feed, off unless asked")
     args = parser.parse_args()
     prior = session.load()
-    last = session.find(prior.get("last_device") or "")
+    radios = prior.get("radios") or []
+    last = session.find(prior.get("last_device") or "") or (radios[-1] if radios else None)
     if last and last.get("save_state", True) and last.get("snapshot"):
         store.restore(last["snapshot"])
+        if last.get("view"):
+            session.update(view=last["view"])
     if last and last.get("device") and last.get("pin"):
         global active_radio
         active = "ble"
         active_radio = last["device"]
         ble.start(pin=last.get("pin") or "", device_name=last["device"])
+        print(f"restored {last.get('label') or last['device']} from data/")
     threading.Thread(target=snapshot_loop, daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Overlook on http://{args.host}:{args.port}  mode={active}")

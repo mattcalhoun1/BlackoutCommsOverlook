@@ -46,7 +46,15 @@
   aside, section { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow: auto; }
   section.messages { border-right: 0; border-left: 1px solid var(--line); }
   .mapwrap { position: relative; min-height: 0; height: 100%; overflow: hidden; }
-  .mapwrap .tag { position: absolute; top: 10px; left: 12px; color: var(--dim); font-size: 12px; z-index: 1; }
+  body.collapse-left { grid-template-columns: 0 minmax(0, 1fr) 280px; }
+  body.collapse-right { grid-template-columns: 220px minmax(0, 1fr) 0; }
+  body.collapse-left.collapse-right { grid-template-columns: 0 minmax(0, 1fr) 0; }
+  body.collapse-left aside, body.collapse-right section.messages { padding: 0; border: 0; overflow: hidden; }
+  .brand { position: absolute; top: 10px; left: 12px; z-index: 2; display: flex; gap: 8px; align-items: center; background: rgba(18,22,15,0.88); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .brand svg { width: 28px; height: 28px; }
+  .brand b { display: block; letter-spacing: 0.12em; font-size: 13px; }
+  .brand span { color: var(--dim); font-size: 11px; }
+  .fold { position: absolute; top: 50%; z-index: 2; transform: translateY(-50%); background: rgba(18,22,15,0.9); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 5px; }
   .maptools { position: absolute; top: 8px; right: 10px; z-index: 1; display: flex; gap: 8px; align-items: center; background: rgba(18,22,15,0.88); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
   .msg { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
   .msg b { display: block; }
@@ -62,7 +70,11 @@
     display: flex; justify-content: space-between; align-items: center;
     padding: 0 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px;
   }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; }
+  .ping { display: grid; grid-template-columns: 18px 1fr auto; column-gap: 6px; align-items: center; margin: 7px 0; }
+  .pico { width: 16px; height: 16px; grid-row: 1 / span 2; }
+  .pico svg { width: 16px; height: 16px; display: block; }
+  .pdot { width: 8px; height: 8px; border-radius: 50%; }
+  .ptime { grid-column: 2; color: var(--dim); font-size: 12px; }
   .dot.off { background: var(--danger); }
 </style>
 </head>
@@ -93,7 +105,12 @@
     <div id="err" class="bad"></div>
   </aside>
   <div class="mapwrap">
-    <div class="tag">OFFLINE MAP</div>
+    <div class="brand">
+      <img src="/blackout-comms-logo.png" alt="Blackout Comms" width="46" height="46">
+      <div><b>OVERLOOK</b><span>by Blackout Comms</span></div>
+    </div>
+    <button class="fold" id="fold-left" style="left:8px" type="button">‹</button>
+    <button class="fold" id="fold-right" style="right:8px" type="button">›</button>
     <div class="maptools">
       <label><input type="checkbox" id="meshgraph" checked> Mesh graph</label>
       <label><input type="checkbox" id="mgrs"> MGRS</label>
@@ -241,7 +258,9 @@ function ageMinutes(ts) {
 function visibleDevices() {
   const maxAge = +(document.getElementById("agefilter").value || 60);
   const criticalOnly = document.getElementById("criticalonly").checked;
-  return (state.devices || []).filter(d => {
+  const devices = (state.devices || []).slice();
+  if (state.self && !devices.some(d => d.id === state.self.id)) devices.unshift(state.self);
+  return devices.filter(d => {
     const self = d.self || (state.self && d.id === state.self.id);
     if (self) return true;
     if (criticalOnly && !d.critical) return false;
@@ -293,28 +312,41 @@ function screenOf(lat, lon) {
 function drawMgrs() {
   const here = utmOf(view.lat, view.lon);
   const step = view.zoom >= 15 ? 100 : view.zoom >= 12 ? 1000 : 10000;
+  const digits = step >= 10000 ? 1 : step >= 1000 ? 2 : 3;
   const east0 = Math.floor(here.east / step) * step;
   const north0 = Math.floor(here.north / step) * step;
+  const label = (value) => String(Math.round(value) % 100000).padStart(5, "0").slice(0, digits);
   ctx.save();
   ctx.strokeStyle = "rgba(142,180,212,0.55)";
-  ctx.fillStyle = "#d7e6f2";
   ctx.lineWidth = 1;
-  ctx.font = `${11 * devicePixelRatio}px sans-serif`;
-  for (let i = -8; i <= 8; i++) {
+  ctx.font = `${12 * devicePixelRatio}px sans-serif`;
+  ctx.textBaseline = "top";
+  const stamp = (text, x, y) => {
+    const w = ctx.measureText(text).width + 8;
+    ctx.fillStyle = "rgba(18,22,15,0.82)";
+    ctx.fillRect(x, y, w, 16 * devicePixelRatio);
+    ctx.fillStyle = "#d7e6f2";
+    ctx.fillText(text, x + 4, y + 2);
+  };
+  for (let i = -12; i <= 12; i++) {
     const east = east0 + i * step;
-    const a = fromUtm(here.zone, east, north0 - 8 * step);
-    const b = fromUtm(here.zone, east, north0 + 8 * step);
+    const a = fromUtm(here.zone, east, north0 - 12 * step);
+    const b = fromUtm(here.zone, east, north0 + 12 * step);
     const pa = screenOf(a.lat, a.lon), pb = screenOf(b.lat, b.lon);
     ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
-    ctx.fillText(String(east % 100000).padStart(5, "0").slice(0, 2), pa.x + 4, 18 * devicePixelRatio);
+    const topY = 40 * devicePixelRatio;
+    const ex = pa.y === pb.y ? pa.x : pa.x + (topY - pa.y) * (pb.x - pa.x) / (pb.y - pa.y);
+    if (ex > 8 && ex < canvas.width - 48) stamp(label(east), ex + 3, topY);
     const north = north0 + i * step;
-    const c = fromUtm(here.zone, east0 - 8 * step, north);
-    const d = fromUtm(here.zone, east0 + 8 * step, north);
+    const c = fromUtm(here.zone, east0 - 12 * step, north);
+    const d = fromUtm(here.zone, east0 + 12 * step, north);
     const pc = screenOf(c.lat, c.lon), pd = screenOf(d.lat, d.lon);
     ctx.beginPath(); ctx.moveTo(pc.x, pc.y); ctx.lineTo(pd.x, pd.y); ctx.stroke();
-    ctx.fillText(String(north % 100000).padStart(5, "0").slice(0, 2), 8, pc.y - 4);
+    const leftX = 8;
+    const ny = pc.x === pd.x ? pc.y : pc.y + (leftX - pc.x) * (pd.y - pc.y) / (pd.x - pc.x);
+    if (ny > 24 && ny < canvas.height - 28) stamp(label(north), leftX, ny + 3);
   }
-  ctx.fillText(`${here.zone}${view.lat >= 0 ? "N" : "S"}  ${step}m`, 8, canvas.height - 10);
+  stamp(`${here.zone}${view.lat >= 0 ? "N" : "S"} ${step}m`, 8, canvas.height - 22 * devicePixelRatio);
   ctx.restore();
 }
 
@@ -359,6 +391,9 @@ function draw() {
       ctx.stroke();
     }
     ctx.fillStyle = p.direct || self ? "#7dce6a" : (p.stale ? "#6a6254" : "#8d977f");
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, (self ? 5 : 4) * devicePixelRatio, 0, Math.PI * 2);
+    ctx.fill();
     ctx.save();
     ctx.translate(p.x, p.y);
     iconGlyph(p.icon || "user", ctx.fillStyle);
@@ -369,7 +404,7 @@ function draw() {
     }
     ctx.fillStyle = "#e6ecd9";
     ctx.font = `${13 * devicePixelRatio}px sans-serif`;
-    ctx.fillText(p.nickname || p.name || p.id, p.x + 14, p.y + 4);
+    ctx.fillText(labelOf(p), p.x + 14, p.y + 4);
   });
   plotted = pts;
   requestAnimationFrame(draw);
@@ -390,11 +425,30 @@ function fmtTs(ts) {
   return s || "—";
 }
 
+function labelOf(device) {
+  if (!device) return "—";
+  return device.nickname || device.name || device.id || "—";
+}
+
+function findDevice(id) {
+  return (state && state.devices || []).find(d => d.id === id || d.address === id);
+}
+
+function iconSvg(icon) {
+  const common = "fill='none' stroke='currentColor' stroke-width='1.6'";
+  if (icon === "root") return `<svg viewBox='-8 -8 16 16' ${common}><path d='M-6 0 L0 -7 L6 0'/><rect x='-4' y='0' width='8' height='6'/></svg>`;
+  if (icon === "relay") return `<svg viewBox='-8 -8 16 16' ${common}><path d='M0 7 V-7 M-6 -2 H6'/></svg>`;
+  if (icon === "thermal") return `<svg viewBox='-8 -8 16 16' ${common}><circle cx='0' cy='3' r='3'/><path d='M0 3 V-7'/></svg>`;
+  if (icon === "proximity") return `<svg viewBox='-8 -8 16 16' ${common}><circle cx='0' cy='0' r='2.5'/><circle cx='0' cy='0' r='6'/></svg>`;
+  if (icon === "node") return `<svg viewBox='-8 -8 16 16' ${common}><path d='M0 -7 L7 0 L0 7 L-7 0 Z'/></svg>`;
+  return `<svg viewBox='-8 -8 16 16' ${common}><circle cx='0' cy='-3' r='2.4'/><path d='M-5 7 L0 0 L5 7'/></svg>`;
+}
+
 function renderDevice(self, conn) {
   const box = document.getElementById("deviceinfo");
   if (!self) { box.textContent = "No radio"; return; }
   box.innerHTML = [
-    `<b>${self.name || "—"}</b> ${self.id || ""}`,
+    `<b>${labelOf(self)}</b>`,
     `addr ${self.address || "—"} · ${self.icon || ""}`,
     `temp ${self.temperature ?? "—"}`,
     `time ${fmtTs(self.ts)}`,
@@ -404,6 +458,13 @@ function renderDevice(self, conn) {
     `bat ${self.batteryLevel || "—"} · relay ${self.relayState || "—"}`,
     conn && conn.cfg ? conn.cfg : ""
   ].filter(Boolean).join("<br>");
+}
+
+function clock(ts) {
+  const s = String(ts || "");
+  if (s.length >= 12) return `${s.slice(6, 8)}:${s.slice(8, 10)}:${s.slice(10, 12)}`;
+  const shown = fmtTs(ts);
+  return shown.length >= 8 ? shown.slice(-8) : shown;
 }
 
 function renderTraffic() {
@@ -440,9 +501,11 @@ function renderTraffic() {
   }
   const pings = (state && state.pings) || [];
   document.getElementById("pings").innerHTML = pings.slice(0, 12).map(p => {
-    const dev = (state.devices || []).find(d => d.id === p.id);
-    return `${p.kind === "DIRECT" ? "●" : "○"} ${dev && dev.icon ? dev.icon : "node"} ${dev && dev.name || p.id || ""} ${p.rssi ?? ""} dBm ${fmtTs(p.ts)}`;
-  }).join("<br>") || "No pings";
+    const dev = findDevice(p.id) || {};
+    const color = p.kind === "DIRECT" ? "#7dce6a" : "#8eb4d4";
+    const name = labelOf(dev.id ? dev : {id: p.id});
+    return `<div class="ping"><span class="pico" style="color:${color}">${iconSvg(dev.icon || "node")}</span><b>${name}</b><span class="pdot" style="background:${color}"></span><span class="ptime">${clock(p.ts)} · ${p.rssi ?? "—"} dBm</span></div>`;
+  }).join("") || "No pings";
 }
 
 async function refresh() {
@@ -473,12 +536,12 @@ async function refresh() {
   const msgs = state.messages || [];
   document.getElementById("mcount").textContent = msgs.length;
   document.getElementById("msgs").innerHTML = msgs.slice(0, 6).map(m =>
-    `<div class="msg"><span class="${m.status === "confirmed" ? "live" : "stale"}">${m.status || ""}</span><b>${m.title || m.priority || "Message"}</b>${m.text || ""}<div class="sub">${m.ts || ""}</div></div>`
+    `<div class="msg"><span class="${m.status === "confirmed" ? "live" : "stale"}">${m.status || ""}</span><b>${m.title || m.priority || "Message"}</b>${m.text || ""}<div class="sub">${labelOf(findDevice(m.sender))} · ${fmtTs(m.ts)}</div></div>`
   ).join("");
   const to = document.getElementById("to");
   const selected = to.value;
   to.innerHTML = (state.devices || []).filter(d => !d.self).map(d =>
-    `<option value="${d.id}">${d.name}</option>`).join("");
+    `<option value="${d.id}">${labelOf(d)}</option>`).join("");
   if (selected) to.value = selected;
   document.getElementById("send").disabled = !state.connected;
   renderTraffic();
@@ -491,6 +554,14 @@ async function refresh() {
 setInterval(refresh, 1000);
 refresh();
 
+document.getElementById("fold-left").onclick = () => {
+  document.body.classList.toggle("collapse-left");
+  document.getElementById("fold-left").textContent = document.body.classList.contains("collapse-left") ? "›" : "‹";
+};
+document.getElementById("fold-right").onclick = () => {
+  document.body.classList.toggle("collapse-right");
+  document.getElementById("fold-right").textContent = document.body.classList.contains("collapse-right") ? "‹" : "›";
+};
 document.getElementById("saved").onchange = (ev) => {
   const radio = (state.radios || []).find(r => r.device === ev.target.value);
   if (!radio) return;
@@ -529,7 +600,7 @@ canvas.addEventListener("click", (ev) => {
   if (!hit) { selectedId = null; card.hidden = true; return; }
   selectedId = hit.id;
   card.hidden = false;
-  card.innerHTML = `<b>${hit.name || hit.id}</b><br>${hit.icon || "user"} · addr ${hit.address || "—"}<br>temp ${hit.temperature ?? "—"} · bat ${hit.batteryLevel || "—"}<br>${hit.lat}, ${hit.lon}<br>alt ${hit.alt || "—"} · hdg ${hit.head || "—"} · spd ${hit.speed || "—"}<br>rssi ${hit.rssi ?? "—"} · ${hit.direct ? "direct" : hit.indirect ? "indirect" : "quiet"}<br>${fmtTs(hit.ts)}`;
+  card.innerHTML = `<b>${labelOf(hit)}</b><br>${hit.icon || "user"} · addr ${hit.address || "—"}<br>temp ${hit.temperature ?? "—"} · bat ${hit.batteryLevel || "—"}<br>${hit.lat}, ${hit.lon}<br>alt ${hit.alt || "—"} · hdg ${hit.head || "—"} · spd ${hit.speed || "—"}<br>rssi ${hit.rssi ?? "—"} · ${hit.direct ? "direct" : hit.indirect ? "indirect" : "quiet"}<br>${fmtTs(hit.ts)}`;
 });
 canvas.parentElement.addEventListener("wheel", (ev) => {
   ev.preventDefault();

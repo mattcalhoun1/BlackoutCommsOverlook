@@ -128,6 +128,7 @@ class ClusterStore:
         device = {
             "id": self_obj.get("id"),
             "name": self_obj.get("name"),
+            "nickname": self_obj.get("nickname"),
             "address": self_obj.get("address"),
             "icon": self_obj.get("icon"),
             "batteryLevel": self_obj.get("batteryLevel"),
