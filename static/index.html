@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overlook</title>
+<style>
+  :root {
+    --bg: #12160f;
+    --panel: #1b2118;
+    --line: #2c3426;
+    --text: #e6ecd9;
+    --dim: #8d977f;
+    --green: #7dce6a;
+    --amber: #e0b15a;
+    --blue: #8eb4d4;
+    --danger: #d07a62;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.35 "Segoe UI", "Liberation Sans", sans-serif; }
+  body {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) 280px;
+    grid-template-rows: minmax(0, 1fr) auto 36px;
+    grid-template-areas:
+      "side map messages"
+      "side traffic messages"
+      "foot foot foot";
+  }
+  aside { grid-area: side; }
+  .mapwrap { grid-area: map; }
+  .trafficbar { grid-area: traffic; }
+  section.messages { grid-area: messages; }
+  footer { grid-area: foot; }
+  #map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #1a2418; }
+  .trafficbar { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 12px 10px; }
+  .trafficbar canvas { width: 100%; height: 88px; display: block; background: #10140e; border-radius: 6px; }
+  .card { position: absolute; right: 12px; bottom: 12px; background: rgba(18,22,15,0.92); border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 180px; font-size: 12px; }
+  h1 { font-size: 22px; letter-spacing: 0.12em; margin: 0; }
+  .sub { color: var(--dim); font-size: 12px; margin-bottom: 18px; }
+  .k { color: var(--dim); font-size: 11px; letter-spacing: 0.14em; margin: 16px 0 4px; }
+  .live { color: var(--green); }
+  .stale { color: var(--amber); }
+  .bad { color: var(--danger); }
+  aside, section { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow: auto; }
+  section.messages { border-right: 0; border-left: 1px solid var(--line); }
+  .mapwrap { position: relative; min-height: 0; height: 100%; overflow: hidden; }
+  .mapwrap .tag { position: absolute; top: 10px; left: 12px; color: var(--dim); font-size: 12px; z-index: 1; }
+  .maptools { position: absolute; top: 8px; right: 10px; z-index: 1; display: flex; gap: 8px; align-items: center; background: rgba(18,22,15,0.88); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+  .msg { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+  .msg b { display: block; }
+  .msg span { float: right; font-size: 12px; }
+  form { display: grid; gap: 6px; margin-top: 12px; }
+  input, select, button, textarea {
+    background: #10140e; color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 8px; font: inherit;
+  }
+  button { cursor: pointer; }
+  button.primary { background: #243222; color: var(--green); }
+  footer {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px;
+  }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; }
+  .dot.off { background: var(--danger); }
+</style>
+</head>
+<body>
+  <aside>
+    <h1>OVERLOOK</h1>
+    <div class="sub">by Blackout Comms</div>
+    <div class="k">CLUSTER</div>
+    <div id="cluster">—</div>
+    <div class="k">LINK</div>
+    <div id="link"><span class="dot off"></span>offline</div>
+    <div class="k">CONNECTED DEVICE</div>
+    <div id="deviceinfo" class="sub">No radio</div>
+    <div class="k">HOP PATTERN</div>
+    <div id="hop" class="dim">waiting</div>
+    <form id="connect">
+      <select id="saved" name="saved">
+        <option value="">Saved radios</option>
+      </select>
+      <input name="label" placeholder="Name" autocomplete="off">
+      <input name="device" placeholder="Device ID" maxlength="6" autocapitalize="characters" autocomplete="off" pattern="[A-Za-z0-9]{6}" title="6 letters or digits">
+      <input name="pin" placeholder="PIN" inputmode="numeric" autocomplete="off" pattern="[0-9]+" title="Digits only">
+      <label><input type="checkbox" name="save_state" checked> Save state</label>
+      <button class="primary" type="submit">Connect</button>
+      <button type="button" id="drop">Disconnect</button>
+    </form>
+    <div class="k">LAST ERROR</div>
+    <div id="err" class="bad"></div>
+  </aside>
+  <div class="mapwrap">
+    <div class="tag">OFFLINE MAP</div>
+    <div class="maptools">
+      <label><input type="checkbox" id="meshgraph" checked> Mesh graph</label>
+      <label><input type="checkbox" id="mgrs"> MGRS</label>
+      <label><input type="checkbox" id="criticalonly"> Critical</label>
+      <select id="agefilter">
+        <option value="30">30 min</option>
+        <option value="60" selected>60 min</option>
+        <option value="1440">1 day</option>
+        <option value="20160">14 days</option>
+        <option value="43200">30 days</option>
+        <option value="0">All time</option>
+      </select>
+    </div>
+    <canvas id="map"></canvas>
+    <div id="pick" class="card" hidden></div>
+  </div>
+  <div class="trafficbar">
+    <label><input type="checkbox" id="showgraph" checked> Mesh traffic</label>
+    <canvas id="spark" height="88"></canvas>
+  </div>
+  <section class="messages">
+    <div class="k">MESSAGES <span id="mcount"></span></div>
+    <div id="msgs"></div>
+    <form id="compose">
+      <select name="kind">
+        <option value="bc">Broadcast</option>
+        <option value="dm">Direct</option>
+      </select>
+      <select name="to" id="to"></select>
+      <select name="priority">
+        <option>Low</option><option selected>Normal</option><option>Medium</option><option>High</option><option>Critical</option>
+      </select>
+      <textarea name="msg" rows="2" placeholder="Letters, digits, space, period, comma"></textarea>
+      <label><input type="checkbox" name="fm"> Force mesh</label>
+      <button class="primary" type="submit" id="send" disabled>Send via radio</button>
+    </form>
+    <div class="k">PINGS</div>
+    <div id="pings" class="sub"></div>
+  </section>
+  <footer>
+    <div>Local mesh only. Keys stay on the radio.</div>
+    <div id="radio">NET —</div>
+    <div id="uptime"></div>
+  </footer>
+<script>
+const canvas = document.getElementById("map");
+const ctx = canvas.getContext("2d");
+let state = null;
+let view = {lat: 39.8, lon: -98.5, zoom: 4};
+const tileCache = new Map();
+
+function resize() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = Math.max(1, rect.width) * devicePixelRatio;
+  canvas.height = Math.max(1, rect.height) * devicePixelRatio;
+}
+addEventListener("resize", resize);
+
+function project(devices) {
+  const pts = devices.filter(d => d.lat && d.lon && isFinite(+d.lat) && isFinite(+d.lon))
+    .map(d => ({...d, lat:+d.lat, lon:+d.lon}));
+  if (!pts.length || canvas.width < 10 || canvas.height < 10) return [];
+  const scale = 256 * Math.pow(2, view.zoom) * devicePixelRatio;
+  const center = mercator(view.lat, view.lon);
+  return pts.map(p => {
+    const m = mercator(p.lat, p.lon);
+    return {...p, x: canvas.width / 2 + (m.x - center.x) * scale, y: canvas.height / 2 + (m.y - center.y) * scale};
+  });
+}
+
+function mercator(lat, lon) {
+  const x = (lon + 180) / 360;
+  const s = Math.sin(lat * Math.PI / 180);
+  const y = 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+  return {x, y};
+}
+
+function tileImage(z, x, y) {
+  const key = `${z}/${y}/${x}`;
+  if (tileCache.has(key)) return tileCache.get(key);
+  const img = new Image();
+  img.onload = () => img.ready = true;
+  img.src = `/tiles/${z}/${y}/${x}.png`;
+  tileCache.set(key, img);
+  return img;
+}
+
+function drawTiles() {
+  const z = view.zoom;
+  const n = 2 ** z;
+  const scale = 256 * devicePixelRatio;
+  const center = mercator(view.lat, view.lon);
+  const world = 256 * n * devicePixelRatio;
+  const left = canvas.width / 2 - center.x * world;
+  const top = canvas.height / 2 - center.y * world;
+  const x0 = Math.floor(-left / scale);
+  const y0 = Math.floor(-top / scale);
+  const x1 = Math.ceil((canvas.width - left) / scale);
+  const y1 = Math.ceil((canvas.height - top) / scale);
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      if (x < 0 || y < 0 || x >= n || y >= n) continue;
+      const img = tileImage(z, x, y);
+      if (img.ready) ctx.drawImage(img, left + x * scale, top + y * scale, scale, scale);
+    }
+  }
+}
+
+let plotted = [];
+let selectedId = null;
+
+function iconGlyph(icon, color) {
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1.6 * devicePixelRatio;
+  const s = 7 * devicePixelRatio;
+  if (icon === "root") {
+    ctx.beginPath(); ctx.moveTo(-s, 0); ctx.lineTo(0, -s); ctx.lineTo(s, 0); ctx.stroke();
+    ctx.strokeRect(-s * 0.7, 0, s * 1.4, s);
+  } else if (icon === "relay") {
+    ctx.beginPath(); ctx.moveTo(0, s); ctx.lineTo(0, -s); ctx.moveTo(-s, -s * 0.2); ctx.lineTo(s, -s * 0.2); ctx.stroke();
+  } else if (icon === "thermal") {
+    ctx.beginPath(); ctx.arc(0, s * 0.35, s * 0.45, 0, Math.PI * 2); ctx.moveTo(0, s * 0.35); ctx.lineTo(0, -s); ctx.stroke();
+  } else if (icon === "proximity") {
+    ctx.beginPath(); ctx.arc(0, 0, s * 0.35, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.stroke();
+  } else if (icon === "node") {
+    ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(s, 0); ctx.lineTo(0, s); ctx.lineTo(-s, 0); ctx.closePath(); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(0, -s * 0.45, s * 0.35, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-s * 0.7, s); ctx.lineTo(0, -s * 0.05); ctx.lineTo(s * 0.7, s); ctx.stroke();
+  }
+}
+function addrKey(value) {
+  return String(value ?? "").replace(/^0+/, "") || "0";
+}
+
+function ageMinutes(ts) {
+  const s = String(ts || "");
+  if (s.length < 12) return Infinity;
+  const when = Date.UTC(2000 + +s.slice(0, 2), +s.slice(2, 4) - 1, +s.slice(4, 6), +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12));
+  return (Date.now() - when) / 60000;
+}
+
+function visibleDevices() {
+  const maxAge = +(document.getElementById("agefilter").value || 60);
+  const criticalOnly = document.getElementById("criticalonly").checked;
+  return (state.devices || []).filter(d => {
+    const self = d.self || (state.self && d.id === state.self.id);
+    if (self) return true;
+    if (criticalOnly && !d.critical) return false;
+    if (maxAge && ageMinutes(d.ts) > maxAge) return false;
+    return true;
+  });
+}
+
+function utmOf(lat, lon) {
+  const a = 6378137, f = 1 / 298.257223563, k0 = 0.9996;
+  const e2 = f * (2 - f), ep2 = e2 / (1 - e2);
+  const zone = Math.floor((lon + 180) / 6) + 1;
+  const lon0 = ((zone - 1) * 6 - 180 + 3) * Math.PI / 180;
+  const latr = lat * Math.PI / 180, lonr = lon * Math.PI / 180;
+  const sin = Math.sin(latr), cos = Math.cos(latr), tan = Math.tan(latr);
+  const N = a / Math.sqrt(1 - e2 * sin * sin);
+  const T = tan * tan, C = ep2 * cos * cos, A = (lonr - lon0) * cos;
+  const M = a * ((1 - e2 / 4 - 3 * e2 * e2 / 64) * latr - (3 * e2 / 8 + 3 * e2 * e2 / 32) * Math.sin(2 * latr) + (15 * e2 * e2 / 256) * Math.sin(4 * latr));
+  const east = k0 * N * (A + (1 - T + C) * A ** 3 / 6) + 500000;
+  let north = k0 * (M + N * tan * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24));
+  if (lat < 0) north += 10000000;
+  return {zone, east, north};
+}
+
+function fromUtm(zone, east, north) {
+  const a = 6378137, f = 1 / 298.257223563, k0 = 0.9996;
+  const e2 = f * (2 - f), ep2 = e2 / (1 - e2);
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const x = east - 500000, y = north;
+  const M = y / k0;
+  const mu = M / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64));
+  const lat1 = mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu) + (21 * e1 * e1 / 16) * Math.sin(4 * mu);
+  const sin = Math.sin(lat1), cos = Math.cos(lat1), tan = Math.tan(lat1);
+  const N1 = a / Math.sqrt(1 - e2 * sin * sin);
+  const T = tan * tan, C = ep2 * cos * cos, R = a * (1 - e2) / (1 - e2 * sin * sin) ** 1.5, D = x / (N1 * k0);
+  const lat = lat1 - (N1 * tan / R) * (D * D / 2 - (5 + 3 * T + 10 * C - 4 * C * C - 9 * ep2) * D ** 4 / 24);
+  const lon0 = ((zone - 1) * 6 - 180 + 3) * Math.PI / 180;
+  const lon = lon0 + (D - (1 + 2 * T + C) * D ** 3 / 6) / cos;
+  return {lat: lat * 180 / Math.PI, lon: lon * 180 / Math.PI};
+}
+
+function screenOf(lat, lon) {
+  const scale = 256 * Math.pow(2, view.zoom) * devicePixelRatio;
+  const center = mercator(view.lat, view.lon);
+  const m = mercator(lat, lon);
+  return {x: canvas.width / 2 + (m.x - center.x) * scale, y: canvas.height / 2 + (m.y - center.y) * scale};
+}
+
+function drawMgrs() {
+  const here = utmOf(view.lat, view.lon);
+  const step = view.zoom >= 15 ? 100 : view.zoom >= 12 ? 1000 : 10000;
+  const east0 = Math.floor(here.east / step) * step;
+  const north0 = Math.floor(here.north / step) * step;
+  ctx.save();
+  ctx.strokeStyle = "rgba(142,180,212,0.55)";
+  ctx.fillStyle = "#d7e6f2";
+  ctx.lineWidth = 1;
+  ctx.font = `${11 * devicePixelRatio}px sans-serif`;
+  for (let i = -8; i <= 8; i++) {
+    const east = east0 + i * step;
+    const a = fromUtm(here.zone, east, north0 - 8 * step);
+    const b = fromUtm(here.zone, east, north0 + 8 * step);
+    const pa = screenOf(a.lat, a.lon), pb = screenOf(b.lat, b.lon);
+    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+    ctx.fillText(String(east % 100000).padStart(5, "0").slice(0, 2), pa.x + 4, 18 * devicePixelRatio);
+    const north = north0 + i * step;
+    const c = fromUtm(here.zone, east0 - 8 * step, north);
+    const d = fromUtm(here.zone, east0 + 8 * step, north);
+    const pc = screenOf(c.lat, c.lon), pd = screenOf(d.lat, d.lon);
+    ctx.beginPath(); ctx.moveTo(pc.x, pc.y); ctx.lineTo(pd.x, pd.y); ctx.stroke();
+    ctx.fillText(String(north % 100000).padStart(5, "0").slice(0, 2), 8, pc.y - 4);
+  }
+  ctx.fillText(`${here.zone}${view.lat >= 0 ? "N" : "S"}  ${step}m`, 8, canvas.height - 10);
+  ctx.restore();
+}
+
+function draw() {
+  resize();
+  ctx.fillStyle = "#1a2418";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawTiles();
+  if (document.getElementById("mgrs").checked) drawMgrs();
+  if (!state) { requestAnimationFrame(draw); return; }
+  const pts = project(visibleDevices());
+  const byAddr = {};
+  pts.forEach(p => {
+    const key = addrKey(p.address);
+    byAddr[key] = p;
+    byAddr[String(p.address || "")] = p;
+  });
+  if (document.getElementById("meshgraph").checked) {
+    ctx.lineWidth = 2;
+    Object.entries(state.graph || {}).forEach(([src, edges]) => {
+      const a = byAddr[src] || byAddr[addrKey(src)];
+      if (!a) return;
+      Object.entries(edges).forEach(([dst, edge]) => {
+        const b = byAddr[dst] || byAddr[addrKey(dst)];
+        if (!b || a === b) return;
+        ctx.strokeStyle = (edge.direct || 0) >= 50 ? "#6fbf62" : "#8d977f";
+        ctx.setLineDash((edge.direct || 0) >= 50 ? [] : [6, 6]);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      });
+    });
+    ctx.setLineDash([]);
+  }
+  pts.forEach(p => {
+    const self = p.self || (state.self && p.id === state.self.id);
+    if (self) {
+      ctx.strokeStyle = "rgba(125,206,106,0.35)";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 46 * devicePixelRatio, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = p.direct || self ? "#7dce6a" : (p.stale ? "#6a6254" : "#8d977f");
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    iconGlyph(p.icon || "user", ctx.fillStyle);
+    ctx.restore();
+    if (p.id === selectedId) {
+      ctx.strokeStyle = "#e0b15a";
+      ctx.strokeRect(p.x - 12 * devicePixelRatio, p.y - 14 * devicePixelRatio, 24 * devicePixelRatio, 28 * devicePixelRatio);
+    }
+    ctx.fillStyle = "#e6ecd9";
+    ctx.font = `${13 * devicePixelRatio}px sans-serif`;
+    ctx.fillText(p.nickname || p.name || p.id, p.x + 14, p.y + 4);
+  });
+  plotted = pts;
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+function centerOn(lat, lon, zoom) {
+  view.lat = +lat;
+  view.lon = +lon;
+  if (zoom) view.zoom = zoom;
+  view.userSet = true;
+  fetch("/api/view", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({lat: view.lat, lon: view.lon, zoom: view.zoom})});
+}
+
+function fmtTs(ts) {
+  const s = String(ts || "");
+  if (s.length === 12) return `20${s.slice(0,2)}-${s.slice(2,4)}-${s.slice(4,6)} ${s.slice(6,8)}:${s.slice(8,10)}:${s.slice(10,12)}`;
+  return s || "—";
+}
+
+function renderDevice(self, conn) {
+  const box = document.getElementById("deviceinfo");
+  if (!self) { box.textContent = "No radio"; return; }
+  box.innerHTML = [
+    `<b>${self.name || "—"}</b> ${self.id || ""}`,
+    `addr ${self.address || "—"} · ${self.icon || ""}`,
+    `temp ${self.temperature ?? "—"}`,
+    `time ${fmtTs(self.ts)}`,
+    `lat ${self.lat || "—"}`,
+    `lon ${self.lon || "—"}`,
+    `alt ${self.alt || "—"} · hdg ${self.head || "—"} · spd ${self.speed || "—"}`,
+    `bat ${self.batteryLevel || "—"} · relay ${self.relayState || "—"}`,
+    conn && conn.cfg ? conn.cfg : ""
+  ].filter(Boolean).join("<br>");
+}
+
+function renderTraffic() {
+  const show = document.getElementById("showgraph").checked;
+  const spark = document.getElementById("spark");
+  spark.style.display = show ? "block" : "none";
+  const samples = (state && state.traffic) || [];
+  if (show && samples.length) {
+    const c = spark.getContext("2d");
+    spark.width = spark.clientWidth * devicePixelRatio;
+    spark.height = 70 * devicePixelRatio;
+    c.clearRect(0, 0, spark.width, spark.height);
+    const series = [
+      samples.map(s => s.packetsIn || 0),
+      samples.map(s => s.packetsOut || 0)
+    ];
+    const max = Math.max(1, ...series.flat());
+    c.fillStyle = "#8d977f";
+    c.font = `${11 * devicePixelRatio}px sans-serif`;
+    c.fillText(`in ${series[0].at(-1) || 0}`, 8, 16 * devicePixelRatio);
+    c.fillText(`out ${series[1].at(-1) || 0}`, 70 * devicePixelRatio, 16 * devicePixelRatio);
+    c.fillText(String(max), 8, 30 * devicePixelRatio);
+    ["#7dce6a", "#8eb4d4"].forEach((color, idx) => {
+      c.strokeStyle = color;
+      c.lineWidth = 2;
+      c.beginPath();
+      series[idx].forEach((v, i) => {
+        const x = (i / Math.max(1, series[idx].length - 1)) * spark.width;
+        const y = spark.height - (v / max) * (spark.height - 36 * devicePixelRatio) - 8;
+        i ? c.lineTo(x, y) : c.moveTo(x, y);
+      });
+      c.stroke();
+    });
+  }
+  const pings = (state && state.pings) || [];
+  document.getElementById("pings").innerHTML = pings.slice(0, 12).map(p => {
+    const dev = (state.devices || []).find(d => d.id === p.id);
+    return `${p.kind === "DIRECT" ? "●" : "○"} ${dev && dev.icon ? dev.icon : "node"} ${dev && dev.name || p.id || ""} ${p.rssi ?? ""} dBm ${fmtTs(p.ts)}`;
+  }).join("<br>") || "No pings";
+}
+
+async function refresh() {
+  const res = await fetch("/api/state");
+  state = await res.json();
+  if (state.view && !view.restored) {
+    view.lat = state.view.lat;
+    view.lon = state.view.lon;
+    view.zoom = state.view.zoom || view.zoom;
+    view.restored = true;
+    view.userSet = true;
+  } else if (!view.userSet && state.self && state.self.lat) {
+    view.lat = +state.self.lat;
+    view.lon = +state.self.lon;
+    view.zoom = 16;
+    view.userSet = true;
+  }
+  document.getElementById("cluster").textContent = (state.cluster || "—").toUpperCase();
+  const link = document.getElementById("link");
+  link.innerHTML = state.connected
+    ? `<span class="dot"></span>${state.link_name}<br><span class="live">connected · last heard ${state.last_rx_age ?? 0}s ago</span>`
+    : `<span class="dot off"></span>disconnected`;
+  document.getElementById("err").textContent = state.connected ? "" : (state.link_name || "");
+  const conn = state.conn || {};
+  document.getElementById("hop").textContent = conn.stlth ? `stealth ${conn.stlth} · q ${conn.q}` : "waiting";
+  document.getElementById("radio").textContent = conn.cfg ? `${conn.net} · ${conn.cfg}` : "NET —";
+  renderDevice(state.self, conn);
+  const msgs = state.messages || [];
+  document.getElementById("mcount").textContent = msgs.length;
+  document.getElementById("msgs").innerHTML = msgs.slice(0, 6).map(m =>
+    `<div class="msg"><span class="${m.status === "confirmed" ? "live" : "stale"}">${m.status || ""}</span><b>${m.title || m.priority || "Message"}</b>${m.text || ""}<div class="sub">${m.ts || ""}</div></div>`
+  ).join("");
+  const to = document.getElementById("to");
+  const selected = to.value;
+  to.innerHTML = (state.devices || []).filter(d => !d.self).map(d =>
+    `<option value="${d.id}">${d.name}</option>`).join("");
+  if (selected) to.value = selected;
+  document.getElementById("send").disabled = !state.connected;
+  renderTraffic();
+  const saved = document.getElementById("saved");
+  const keep = saved.value;
+  saved.innerHTML = `<option value="">Saved radios</option>` + (state.radios || []).map(r =>
+    `<option value="${r.device}">${r.label}</option>`).join("");
+  if (keep) saved.value = keep;
+}
+setInterval(refresh, 1000);
+refresh();
+
+document.getElementById("saved").onchange = (ev) => {
+  const radio = (state.radios || []).find(r => r.device === ev.target.value);
+  if (!radio) return;
+  document.querySelector("[name=label]").value = radio.label || "";
+  document.querySelector("[name=device]").value = String(radio.device || "").replace(/^BC-/i, "");
+  document.querySelector("[name=pin]").value = radio.pin || "";
+  document.querySelector("[name=save_state]").checked = radio.save_state !== false;
+};
+document.querySelector("[name=device]").addEventListener("input", (ev) => {
+  ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+});
+document.querySelector("[name=pin]").addEventListener("input", (ev) => {
+  ev.target.value = ev.target.value.replace(/\D/g, "");
+});
+document.getElementById("connect").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const data = Object.fromEntries(new FormData(ev.target));
+  data.device = "BC-" + String(data.device || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  data.pin = String(data.pin || "").replace(/\D/g, "");
+  data.label = String(data.label || data.device);
+  data.save_state = ev.target.save_state.checked;
+  if (data.device === "BC-") return;
+  await fetch("/api/connect", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data)});
+  refresh();
+};
+document.getElementById("drop").onclick = async () => {
+  await fetch("/api/disconnect", {method:"POST"});
+  refresh();
+};
+canvas.addEventListener("click", (ev) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.left) * devicePixelRatio;
+  const y = (ev.clientY - rect.top) * devicePixelRatio;
+  const hit = plotted.slice().reverse().find(p => Math.hypot(p.x - x, p.y - y) < 16 * devicePixelRatio);
+  const card = document.getElementById("pick");
+  if (!hit) { selectedId = null; card.hidden = true; return; }
+  selectedId = hit.id;
+  card.hidden = false;
+  card.innerHTML = `<b>${hit.name || hit.id}</b><br>${hit.icon || "user"} · addr ${hit.address || "—"}<br>temp ${hit.temperature ?? "—"} · bat ${hit.batteryLevel || "—"}<br>${hit.lat}, ${hit.lon}<br>alt ${hit.alt || "—"} · hdg ${hit.head || "—"} · spd ${hit.speed || "—"}<br>rssi ${hit.rssi ?? "—"} · ${hit.direct ? "direct" : hit.indirect ? "indirect" : "quiet"}<br>${fmtTs(hit.ts)}`;
+});
+canvas.parentElement.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  view.zoom = Math.max(3, Math.min(18, view.zoom + (ev.deltaY < 0 ? 1 : -1)));
+  centerOn(view.lat, view.lon, view.zoom);
+}, {passive: false});
+let drag = null;
+canvas.parentElement.addEventListener("pointerdown", (ev) => { drag = {x: ev.clientX, y: ev.clientY, lat: view.lat, lon: view.lon}; });
+addEventListener("pointermove", (ev) => {
+  if (!drag) return;
+  const world = 256 * (2 ** view.zoom) * devicePixelRatio;
+  const dx = (ev.clientX - drag.x) * devicePixelRatio / world;
+  const dy = (ev.clientY - drag.y) * devicePixelRatio / world;
+  const start = mercator(drag.lat, drag.lon);
+  const next = {x: start.x - dx, y: start.y - dy};
+  view.lon = next.x * 360 - 180;
+  view.lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * next.y))) * 180 / Math.PI;
+  view.userSet = true;
+});
+addEventListener("pointerup", () => {
+  if (!drag) return;
+  drag = null;
+  centerOn(view.lat, view.lon, view.zoom);
+});
+document.getElementById("compose").onsubmit = async (ev) => {
+  ev.preventDefault();
+  if (!state || !state.connected) return;
+  const data = Object.fromEntries(new FormData(ev.target));
+  data.fm = ev.target.fm.checked;
+  data.nodes = true;
+  data.expiry = data.kind === "bc" ? 60 : 30;
+  const res = await fetch("/api/send", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data)});
+  if (!res.ok) alert(await res.text());
+  ev.target.msg.value = "";
+};
+</script>
+</body>
+</html>

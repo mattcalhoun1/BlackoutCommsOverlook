@@ -1,0 +1,15 @@
+[Unit]
+Description=Overlook Blackout Comms wall view
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/overlook
+ExecStart=/usr/bin/python3 /opt/overlook/server.py --host 127.0.0.1 --port 8733
+Restart=on-failure
+RestartSec=3
+User=overlook
+
+[Install]
+WantedBy=graphical.target
