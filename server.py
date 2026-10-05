@@ -22,8 +22,13 @@ from transport import BleLink, Simulator, command_from_http
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
-TILE_ROOT = session.DATA / "tiles" / "ESRI.WorldTopoMap"
-TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+TILES = {
+    "esri_topo": ("https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", "zyx"),
+    "opentopo": ("https://a.tile.opentopomap.org/{z}/{x}/{y}.png", "zxy"),
+    "osm": ("https://tile.openstreetmap.org/{z}/{x}/{y}.png", "zxy"),
+    "usgs": ("https://cache.chatters.io/tiles/usgs_topo/{z}/{x}/{y}.png", "zxy"),
+}
+DEFAULT_TILE = "esri_topo"
 
 store = ClusterStore()
 sim = Simulator(store)
@@ -87,11 +92,16 @@ def snapshot_loop() -> None:
             pass
 
 
-def tile_bytes(z: int, y: int, x: int) -> bytes:
-    path = TILE_ROOT / str(z) / str(y) / f"{x}.png"
+def tile_bytes(source: str, z: int, y: int, x: int) -> bytes:
+    spec = TILES.get(source) or TILES[DEFAULT_TILE]
+    url, order = spec
+    path = session.DATA / "tiles" / source / str(z) / str(y) / f"{x}.png"
+    legacy = session.DATA / "tiles" / "ESRI.WorldTopoMap" / str(z) / str(y) / f"{x}.png"
     if path.exists():
         return path.read_bytes()
-    req = urllib.request.Request(TILE_URL.format(z=z, y=y, x=x), headers={"User-Agent": "Overlook/BlackoutComms"})
+    if source == "esri_topo" and legacy.exists():
+        return legacy.read_bytes()
+    req = urllib.request.Request(url.format(z=z, y=y, x=x), headers={"User-Agent": "Overlook/BlackoutComms"})
     with urllib.request.urlopen(req, timeout=12) as resp:
         data = resp.read()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,8 +126,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
             return
-        if path == "/blackout-comms-logo.png":
-            data = (STATIC / "blackout-comms-logo.png").read_bytes()
+        if path == "/overlook-logo.png":
+            data = (STATIC / "overlook-logo.png").read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "image/png")
             self.send_header("Content-Length", str(len(data)))
@@ -129,6 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             body = store.snapshot()
             current = session.load()
             body["view"] = current.get("view")
+            body["tilesource"] = current.get("tilesource") or "esri_topo"
             body["radios"] = session.public_radios()
             body["active_radio"] = active_radio
             self._send(200, json.dumps(body).encode(), "application/json")
@@ -136,8 +147,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/tiles/"):
             parts = path.strip("/").split("/")
             try:
-                z, y, x = int(parts[1]), int(parts[2]), int(parts[3].split(".")[0])
-                data = tile_bytes(z, y, x)
+                source, z, y, x = parts[1], int(parts[2]), int(parts[3]), int(parts[4].split(".")[0])
+                data = tile_bytes(source, z, y, x)
             except Exception:
                 self._send(404, b"", "image/png")
                 return
@@ -190,7 +201,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, b'{"ok":true}', "application/json")
             return
         if path == "/api/view":
-            session.update(view={"lat": body.get("lat"), "lon": body.get("lon"), "zoom": body.get("zoom")})
+            fields = {"view": {"lat": body.get("lat"), "lon": body.get("lon"), "zoom": body.get("zoom")}}
+            if body.get("tilesource"):
+                fields["tilesource"] = body.get("tilesource")
+            session.update(**fields)
             self._send(200, b'{"ok":true}', "application/json")
             return
         if path == "/api/send":

@@ -50,10 +50,8 @@
   body.collapse-right { grid-template-columns: 220px minmax(0, 1fr) 0; }
   body.collapse-left.collapse-right { grid-template-columns: 0 minmax(0, 1fr) 0; }
   body.collapse-left aside, body.collapse-right section.messages { padding: 0; border: 0; overflow: hidden; }
-  .brand { position: absolute; top: 10px; left: 12px; z-index: 2; display: flex; gap: 8px; align-items: center; background: rgba(18,22,15,0.88); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
-  .brand svg { width: 28px; height: 28px; }
-  .brand b { display: block; letter-spacing: 0.12em; font-size: 13px; }
-  .brand span { color: var(--dim); font-size: 11px; }
+  .brand { position: absolute; top: 10px; left: 12px; z-index: 2; background: transparent; border: 0; padding: 0; }
+  .brand img { width: 148px; height: auto; display: block; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.65)); }
   .fold { position: absolute; top: 50%; z-index: 2; transform: translateY(-50%); background: rgba(18,22,15,0.9); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 5px; }
   .maptools { position: absolute; top: 8px; right: 10px; z-index: 1; display: flex; gap: 8px; align-items: center; background: rgba(18,22,15,0.88); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
   .msg { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
@@ -75,7 +73,8 @@
   .pico svg { width: 16px; height: 16px; display: block; }
   .pdot { width: 8px; height: 8px; border-radius: 50%; }
   .ptime { grid-column: 2; color: var(--dim); font-size: 12px; }
-  .dot.off { background: var(--danger); }
+  .statusrow { display: flex; gap: 10px; align-items: center; margin: 6px 0; }
+  .statusrow svg { width: 22px; height: 22px; display: block; }
 </style>
 </head>
 <body>
@@ -106,8 +105,7 @@
   </aside>
   <div class="mapwrap">
     <div class="brand">
-      <img src="/blackout-comms-logo.png" alt="Blackout Comms" width="46" height="46">
-      <div><b>OVERLOOK</b><span>by Blackout Comms</span></div>
+      <img src="/overlook-logo.png" alt="Overlook by Blackout Comms">
     </div>
     <button class="fold" id="fold-left" style="left:8px" type="button">‹</button>
     <button class="fold" id="fold-right" style="right:8px" type="button">›</button>
@@ -115,6 +113,12 @@
       <label><input type="checkbox" id="meshgraph" checked> Mesh graph</label>
       <label><input type="checkbox" id="mgrs"> MGRS</label>
       <label><input type="checkbox" id="criticalonly"> Critical</label>
+      <select id="tilesource">
+        <option value="esri_topo">ESRI World Topo</option>
+        <option value="opentopo">OpenTopoMap</option>
+        <option value="osm">OpenStreetMap</option>
+        <option value="usgs">USGS Topo</option>
+      </select>
       <select id="agefilter">
         <option value="30">30 min</option>
         <option value="60" selected>60 min</option>
@@ -188,12 +192,17 @@ function mercator(lat, lon) {
   return {x, y};
 }
 
+function tileSource() {
+  return document.getElementById("tilesource").value || "esri_topo";
+}
+
 function tileImage(z, x, y) {
-  const key = `${z}/${y}/${x}`;
+  const source = tileSource();
+  const key = `${source}/${z}/${y}/${x}`;
   if (tileCache.has(key)) return tileCache.get(key);
   const img = new Image();
   img.onload = () => img.ready = true;
-  img.src = `/tiles/${z}/${y}/${x}.png`;
+  img.src = `/tiles/${source}/${z}/${y}/${x}.png`;
   tileCache.set(key, img);
   return img;
 }
@@ -402,9 +411,23 @@ function draw() {
       ctx.strokeStyle = "#e0b15a";
       ctx.strokeRect(p.x - 12 * devicePixelRatio, p.y - 14 * devicePixelRatio, 24 * devicePixelRatio, 28 * devicePixelRatio);
     }
-    ctx.fillStyle = "#e6ecd9";
-    ctx.font = `${13 * devicePixelRatio}px sans-serif`;
-    ctx.fillText(labelOf(p), p.x + 14, p.y + 4);
+    const name = labelOf(p);
+    ctx.font = `600 ${13 * devicePixelRatio}px sans-serif`;
+    ctx.textBaseline = "middle";
+    const pad = 4 * devicePixelRatio;
+    const tw = ctx.measureText(name).width;
+    const x = p.x + 16 * devicePixelRatio;
+    const y = p.y;
+    const h = 18 * devicePixelRatio;
+    ctx.fillStyle = "rgba(16,20,14,0.88)";
+    ctx.beginPath();
+    ctx.roundRect(x - pad, y - h / 2, tw + pad * 2, h, 4 * devicePixelRatio);
+    ctx.fill();
+    ctx.lineWidth = 3 * devicePixelRatio;
+    ctx.strokeStyle = "#10140e";
+    ctx.strokeText(name, x, y);
+    ctx.fillStyle = "#f4f7ee";
+    ctx.fillText(name, x, y);
   });
   plotted = pts;
   requestAnimationFrame(draw);
@@ -444,18 +467,39 @@ function iconSvg(icon) {
   return `<svg viewBox='-8 -8 16 16' ${common}><circle cx='0' cy='-3' r='2.4'/><path d='M-5 7 L0 0 L5 7'/></svg>`;
 }
 
+function sunglasses(color) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.8"><path d="M2 10h4l2 3h8l2-3h4"/><rect x="3" y="12" width="7" height="5" rx="1.5" fill="${color}" stroke="none"/><rect x="14" y="12" width="7" height="5" rx="1.5" fill="${color}" stroke="none"/></svg>`;
+}
+
+function batteryIcon(level) {
+  const word = String(level || "").toLowerCase();
+  const color = word.includes("low") ? "#d07a62" : word.includes("med") ? "#e0b15a" : "#7dce6a";
+  const fill = word.includes("low") ? 4 : word.includes("med") ? 8 : 12;
+  return `<svg viewBox="0 0 24 24" title="battery ${word || "high"}"><rect x="3" y="7" width="16" height="10" rx="1.5" fill="none" stroke="${color}" stroke-width="1.6"/><rect x="19.5" y="10" width="2" height="4" fill="${color}"/><rect x="5" y="9" width="${fill}" height="6" fill="${color}"/></svg>`;
+}
+
+function stealthIcon(value) {
+  const word = String(value || "n").toLowerCase();
+  if (word.startsWith("h")) return sunglasses("#d07a62");
+  if (word.startsWith("m")) return sunglasses("#e0b15a");
+  if (word.startsWith("l")) return sunglasses("#8eb4d4");
+  return sunglasses("#7dce6a");
+}
+
 function renderDevice(self, conn) {
   const box = document.getElementById("deviceinfo");
   if (!self) { box.textContent = "No radio"; return; }
+  const stealth = (conn && conn.stlth) || "n";
   box.innerHTML = [
     `<b>${labelOf(self)}</b>`,
-    `addr ${self.address || "—"} · ${self.icon || ""}`,
+    `<div class="statusrow"><span title="${self.icon || "user"}">${iconSvg(self.icon || "user")}</span><span title="battery ${self.batteryLevel || "high"}">${batteryIcon(self.batteryLevel)}</span><span title="stealth ${stealth}">${stealthIcon(stealth)}</span></div>`,
+    `addr ${self.address || "—"}`,
     `temp ${self.temperature ?? "—"}`,
     `time ${fmtTs(self.ts)}`,
     `lat ${self.lat || "—"}`,
     `lon ${self.lon || "—"}`,
     `alt ${self.alt || "—"} · hdg ${self.head || "—"} · spd ${self.speed || "—"}`,
-    `bat ${self.batteryLevel || "—"} · relay ${self.relayState || "—"}`,
+    `relay ${self.relayState || "—"}`,
     conn && conn.cfg ? conn.cfg : ""
   ].filter(Boolean).join("<br>");
 }
@@ -523,6 +567,10 @@ async function refresh() {
     view.zoom = 16;
     view.userSet = true;
   }
+  if (state.tilesource && !view.tilesRestored) {
+    document.getElementById("tilesource").value = state.tilesource;
+    view.tilesRestored = true;
+  }
   document.getElementById("cluster").textContent = (state.cluster || "—").toUpperCase();
   const link = document.getElementById("link");
   link.innerHTML = state.connected
@@ -530,7 +578,7 @@ async function refresh() {
     : `<span class="dot off"></span>disconnected`;
   document.getElementById("err").textContent = state.connected ? "" : (state.link_name || "");
   const conn = state.conn || {};
-  document.getElementById("hop").textContent = conn.stlth ? `stealth ${conn.stlth} · q ${conn.q}` : "waiting";
+  document.getElementById("hop").textContent = conn.q ? `q ${conn.q}` : "waiting";
   document.getElementById("radio").textContent = conn.cfg ? `${conn.net} · ${conn.cfg}` : "NET —";
   renderDevice(state.self, conn);
   const msgs = state.messages || [];
@@ -554,6 +602,12 @@ async function refresh() {
 setInterval(refresh, 1000);
 refresh();
 
+document.getElementById("tilesource").value = localStorage.getItem("overlook-tiles") || "esri_topo";
+document.getElementById("tilesource").onchange = (ev) => {
+  localStorage.setItem("overlook-tiles", ev.target.value);
+  tileCache.clear();
+  fetch("/api/view", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({lat: view.lat, lon: view.lon, zoom: view.zoom, tilesource: ev.target.value})});
+};
 document.getElementById("fold-left").onclick = () => {
   document.body.classList.toggle("collapse-left");
   document.getElementById("fold-left").textContent = document.body.classList.contains("collapse-left") ? "›" : "‹";
