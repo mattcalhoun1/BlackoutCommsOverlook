@@ -756,8 +756,12 @@ async function refresh() {
     ? `<span class="dot"></span>${shown}<br><span class="live">connected · ${state.last_rx_age ?? 0}s ago</span>`
     : `<span class="dot off"></span>disconnected`;
   document.getElementById("err").textContent = state.connected ? "" : (state.link_name || "");
-  const recent = new Set((state.pings || []).filter(p => p.id && (Date.now() / 1000 - (p.at || 0)) <= 180).map(p => p.id));
-  document.getElementById("neighbors").textContent = String(state.neighbors_3m ?? recent.size);
+  const recent = new Set();
+  (state.pings || []).forEach(p => {
+    const id = String(p.id || "").trim();
+    if (id && (Date.now() / 1000 - (p.at || 0)) <= 120) recent.add(id);
+  });
+  document.getElementById("neighbors").textContent = String(recent.size);
   const conn = state.conn || {};
   document.getElementById("devicetime").textContent = `Device Time: ${state.self && state.self.ts ? fmtTs(state.self.ts) : "—"}`;
   document.getElementById("radio").textContent = conn.cfg ? `${conn.net} · ${conn.cfg}` : "NET —";

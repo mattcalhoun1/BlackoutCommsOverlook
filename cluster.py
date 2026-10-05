@@ -30,6 +30,7 @@ class ClusterStore:
         self.direct_ids: dict[str, float] = {}
         self.indirect_ids: set[str] = set()
         self.pings: list[dict[str, Any]] = []
+        self.heard_at: dict[str, float] = {}
         self.graph: dict[str, dict[str, dict[str, Any]]] = {}
         self.messages: dict[str, dict[str, Any]] = {}
         self.traffic: list[dict[str, Any]] = []
@@ -50,6 +51,7 @@ class ClusterStore:
         self.direct_ids = {}
         self.indirect_ids = set()
         self.pings = []
+        self.heard_at = {}
         self.graph = {}
         self.messages = {}
         self.traffic = []
@@ -223,6 +225,10 @@ class ClusterStore:
                 device[dst] = item[src]
 
     def _ping(self, item: dict[str, Any], kind: str) -> None:
+        ident = str(item.get("id") or "").strip()
+        if not ident:
+            return
+        self.heard_at[ident] = time.time()
         self.pings.insert(0, {
             "id": item.get("id"),
             "kind": kind,
@@ -232,7 +238,9 @@ class ClusterStore:
             "lon": item.get("lon"),
             "at": time.time(),
         })
-        self.pings = self.pings[:30]
+        self.pings = self.pings[:50]
+        cutoff = time.time() - 120
+        self.heard_at = {ident: seen for ident, seen in self.heard_at.items() if seen >= cutoff}
 
     def _merge_graph(self, graph: dict[str, Any]) -> None:
         for src, edges in graph.items():
@@ -302,7 +310,7 @@ class ClusterStore:
             "graph": self.graph,
             "messages": messages[:50],
             "pings": self.pings[:50],
-            "neighbors_3m": len({p.get("id") for p in self.pings if p.get("id") and now - float(p.get("at") or 0) <= 180}),
+            "neighbors_3m": len(self.heard_at),
             "traffic": self.traffic[-30:],
             "broadcast_recipient": BROADCAST_RECIPIENT,
         }
