@@ -232,17 +232,23 @@ def main() -> None:
     args = parser.parse_args()
     prior = session.load()
     radios = prior.get("radios") or []
-    last = session.find(prior.get("last_device") or "") or (radios[-1] if radios else None)
+    last = session.find(prior.get("last_device") or "")
+    if not (last and last.get("snapshot")):
+        last = next((item for item in reversed(radios) if item.get("snapshot")), last or (radios[-1] if radios else None))
     if last and last.get("save_state", True) and last.get("snapshot"):
         store.restore(last["snapshot"])
-        if last.get("view"):
-            session.update(view=last["view"])
+        print(f"loaded {len(store.devices)} devices from {session.SESSION_PATH}")
+    view = (last or {}).get("view") or prior.get("view")
+    if view:
+        session.update(view=view)
     if last and last.get("device") and last.get("pin"):
         global active_radio
         active = "ble"
         active_radio = last["device"]
         ble.start(pin=last.get("pin") or "", device_name=last["device"])
-        print(f"restored {last.get('label') or last['device']} from data/")
+        print(f"restored {last.get('label') or last['device']} from {session.DATA}")
+    elif not radios:
+        print(f"no saved radios in {session.SESSION_PATH}")
     threading.Thread(target=snapshot_loop, daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Overlook on http://{args.host}:{args.port}  mode={active}")

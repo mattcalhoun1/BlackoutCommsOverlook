@@ -67,10 +67,12 @@ class ClusterStore:
         self.devices = {d["id"]: dict(d) for d in snapshot.get("devices") or [] if d.get("id")}
         self.graph = snapshot.get("graph") or {}
         self.messages = {m.get("key") or m.get("id"): m for m in snapshot.get("messages") or []}
+        self.pings = list(snapshot.get("pings") or [])
+        self.traffic = list(snapshot.get("traffic") or [])
         self.connected = False
         self.pin_ok = False
         self.mode = "offline"
-        self.last_error = "disconnected"
+        self.last_error = ""
 
     def mark_link(self, up: bool, name: str = "", mode: str = "offline", error: str = "") -> None:
         self.connected = up
@@ -226,6 +228,8 @@ class ClusterStore:
             "kind": kind,
             "rssi": item.get("rssi"),
             "ts": item.get("ts"),
+            "lat": item.get("lat"),
+            "lon": item.get("lon"),
             "at": time.time(),
         })
         self.pings = self.pings[:30]
@@ -293,7 +297,7 @@ class ClusterStore:
             "devices": devices,
             "graph": self.graph,
             "messages": messages[:40],
-            "pings": self.pings[:12],
+            "pings": self.pings[:30],
             "traffic": self.traffic[-30:],
             "broadcast_recipient": BROADCAST_RECIPIENT,
         }

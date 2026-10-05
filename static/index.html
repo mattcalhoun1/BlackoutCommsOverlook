@@ -54,8 +54,12 @@
   .brand img { width: 148px; height: auto; display: block; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.65)); }
   .fold { position: absolute; top: 50%; z-index: 2; transform: translateY(-50%); background: rgba(18,22,15,0.9); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 5px; }
   .maptools { position: absolute; top: 8px; right: 10px; z-index: 1; display: flex; gap: 8px; align-items: center; background: rgba(18,22,15,0.88); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
-  .msg { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+  #msgs { max-height: 210px; overflow: auto; }
+  #pings { max-height: 200px; overflow: auto; }
+  .msg .arrow { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+  .sub .pico { width: 14px; height: 14px; display: inline-block; vertical-align: -3px; margin-right: 3px; }
   .msg b { display: block; }
+  .msg .when { display: block; font-size: 11px; color: var(--dim); margin-top: 4px; }
   .msg span { float: right; font-size: 12px; }
   form { display: grid; gap: 6px; margin-top: 12px; }
   input, select, button, textarea {
@@ -63,7 +67,8 @@
     border-radius: 6px; padding: 7px 8px; font: inherit;
   }
   button { cursor: pointer; }
-  button.primary { background: #243222; color: var(--green); }
+  .spin { width: 22px; height: 22px; border: 2px solid var(--line); border-top-color: var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   footer {
     display: flex; justify-content: space-between; align-items: center;
     padding: 0 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px;
@@ -73,8 +78,9 @@
   .pico svg { width: 16px; height: 16px; display: block; }
   .pdot { width: 8px; height: 8px; border-radius: 50%; }
   .ptime { grid-column: 2; color: var(--dim); font-size: 12px; }
-  .statusrow { display: flex; gap: 10px; align-items: center; margin: 6px 0; }
-  .statusrow svg { width: 22px; height: 22px; display: block; }
+  .statusrow { display: flex; gap: 10px; align-items: center; margin: 6px 0; color: var(--text); }
+  .statusrow svg, .infoline svg { width: 18px; height: 18px; display: inline-block; vertical-align: -4px; }
+  #newmsg { color: var(--amber); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -83,12 +89,9 @@
     <div class="sub">by Blackout Comms</div>
     <div class="k">CLUSTER</div>
     <div id="cluster">—</div>
-    <div class="k">LINK</div>
-    <div id="link"><span class="dot off"></span>offline</div>
     <div class="k">CONNECTED DEVICE</div>
+    <div id="link"><span class="dot off"></span>disconnected</div>
     <div id="deviceinfo" class="sub">No radio</div>
-    <div class="k">HOP PATTERN</div>
-    <div id="hop" class="dim">waiting</div>
     <form id="connect">
       <select id="saved" name="saved">
         <option value="">Saved radios</option>
@@ -137,6 +140,7 @@
   </div>
   <section class="messages">
     <div class="k">MESSAGES <span id="mcount"></span></div>
+    <label><input type="checkbox" id="showmsgs" checked> Show messages</label>
     <div id="msgs"></div>
     <form id="compose">
       <select name="kind">
@@ -150,19 +154,23 @@
       <textarea name="msg" rows="2" placeholder="Letters, digits, space, period, comma"></textarea>
       <label><input type="checkbox" name="fm"> Force mesh</label>
       <button class="primary" type="submit" id="send" disabled>Send via radio</button>
+      <div id="sending" class="spin" hidden></div>
     </form>
     <div class="k">PINGS</div>
+    <label><input type="checkbox" id="showindirect"> Show indirect</label>
     <div id="pings" class="sub"></div>
   </section>
   <footer>
     <div>Local mesh only. Keys stay on the radio.</div>
+    <div id="devicetime">Device Time: —</div>
     <div id="radio">NET —</div>
-    <div id="uptime"></div>
+    <div id="newmsg"></div>
   </footer>
 <script>
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let state = null;
+let sendingUntil = 0;
 let view = {lat: 39.8, lon: -98.5, zoom: 4};
 const tileCache = new Map();
 
@@ -448,13 +456,27 @@ function fmtTs(ts) {
   return s || "—";
 }
 
+function deviceName(device) {
+  return device.name || device.id || "—";
+}
+
 function labelOf(device) {
   if (!device) return "—";
-  return device.nickname || device.name || device.id || "—";
+  if (typeof device === "string") device = findDevice(device) || {name: device};
+  return device.nickname || device.nick || deviceName(device);
+}
+
+function thermometer() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/><circle cx="12" cy="17" r="1.4" fill="#d07a62" stroke="none"/></svg>`;
+}
+
+function gpsIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/></svg>`;
 }
 
 function findDevice(id) {
-  return (state && state.devices || []).find(d => d.id === id || d.address === id);
+  const key = String(id || "");
+  return (state && state.devices || []).find(d => d.id === key || d.address === key || d.name === key || d.nickname === key);
 }
 
 function iconSvg(icon) {
@@ -486,22 +508,144 @@ function stealthIcon(value) {
   return sunglasses("#7dce6a");
 }
 
+function switchIcon(on) {
+  const color = on ? "#7dce6a" : "#d07a62";
+  return `<svg viewBox="0 0 24 24" title="relay ${on ? "on" : "off"}"><rect x="4" y="9" width="16" height="8" rx="4" fill="${color}"/><circle cx="${on ? 15 : 9}" cy="13" r="2.4" fill="#12160f"/></svg>`;
+}
+
+function relayIcon(value) {
+  if (value == null || value === "") return "";
+  return `<span title="relay ${value}">${switchIcon(relayOn(value))}</span>`;
+}
+
+function relayOn(value) {
+  const word = String(value || "").toLowerCase();
+  return word === "on" || word === "1" || word === "true" || word === "high";
+}
+
 function renderDevice(self, conn) {
   const box = document.getElementById("deviceinfo");
   if (!self) { box.textContent = "No radio"; return; }
   const stealth = (conn && conn.stlth) || "n";
+  const relay = relayIcon(self.relayState);
+  const lat = self.lat == null ? "—" : Number(self.lat).toFixed(6);
+  const lon = self.lon == null ? "—" : Number(self.lon).toFixed(6);
+  const alt = self.alt == null || self.alt === "" ? "—" : self.alt;
+  const head = self.head == null || self.head === "" ? "—" : self.head;
+  const spd = self.speed == null || self.speed === "" ? "—" : Number(self.speed).toFixed(1);
+  const tempC = Number(self.temperature);
+  const temp = Number.isFinite(tempC) ? `${(tempC * 9 / 5 + 32).toFixed(1)}°F` : "—";
   box.innerHTML = [
-    `<b>${labelOf(self)}</b>`,
-    `<div class="statusrow"><span title="${self.icon || "user"}">${iconSvg(self.icon || "user")}</span><span title="battery ${self.batteryLevel || "high"}">${batteryIcon(self.batteryLevel)}</span><span title="stealth ${stealth}">${stealthIcon(stealth)}</span></div>`,
-    `addr ${self.address || "—"}`,
-    `temp ${self.temperature ?? "—"}`,
-    `time ${fmtTs(self.ts)}`,
-    `lat ${self.lat || "—"}`,
-    `lon ${self.lon || "—"}`,
-    `alt ${self.alt || "—"} · hdg ${self.head || "—"} · spd ${self.speed || "—"}`,
-    `relay ${self.relayState || "—"}`,
-    conn && conn.cfg ? conn.cfg : ""
+    `<div class="statusrow"><span title="${self.icon || "user"}">${iconSvg(self.icon || "user")}</span><span title="battery ${self.batteryLevel || "high"}">${batteryIcon(self.batteryLevel)}</span><span title="stealth ${stealth}">${stealthIcon(stealth)}</span>${relay}</div>`,
+    `<span class="infoline" title="temperature">${thermometer()} ${temp}</span>`,
+    `<span class="infoline" title="position">${gpsIcon()} [${lat}, ${lon}]</span>`,
+    `Alt: ${alt}m, Head: ${head}°`,
+    `Spd: ${spd} k/hr`
+  ].join("<br>");
+}
+
+function pingLabel(dev, id) {
+  const found = dev && dev.id ? dev : (findDevice(id) || {});
+  const nick = found.nickname || found.nick || "";
+  const name = found.name || "—";
+  return nick ? `${nick} [${name}]` : `[${name}]`;
+}
+
+function validFix(lat, lon) {
+  const la = +lat, lo = +lon;
+  if (![la, lo].every(Number.isFinite)) return false;
+  if (la < -90 || la > 90 || lo < -180 || lo > 180) return false;
+  if (la === 0 && lo === 0) return false;
+  return true;
+}
+
+function rangeText(from, to) {
+  if (!validFix(from.lat, from.lon) || !validFix(to.lat, to.lon)) return "";
+  const dist = distanceKm(from.lat, from.lon, to.lat, to.lon);
+  const bearing = bearingDeg(from.lat, from.lon, to.lat, to.lon);
+  if (dist == null || bearing == null) return "";
+  return `[${dist.toFixed(1)} km @ ${bearing.toFixed(1)}°]`;
+}
+
+function distanceKm(aLat, aLon, bLat, bLon) {
+  const lat1 = +aLat, lon1 = +aLon, lat2 = +bLat, lon2 = +bLon;
+  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
+  const r = 6371;
+  const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+  const dp = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return r * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function bearingDeg(aLat, aLon, bLat, bLon) {
+  const lat1 = +aLat, lon1 = +aLon, lat2 = +bLat, lon2 = +bLon;
+  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
+  const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function deviceCard(device) {
+  const lat = device.lat == null ? "—" : Number(device.lat).toFixed(6);
+  const lon = device.lon == null ? "—" : Number(device.lon).toFixed(6);
+  const alt = device.alt == null || device.alt === "" ? "—" : device.alt;
+  const head = device.head == null || device.head === "" ? "—" : device.head;
+  const spd = device.speed == null || device.speed === "" ? "—" : Number(device.speed).toFixed(1);
+  const tempC = Number(device.temperature);
+  const temp = Number.isFinite(tempC) ? `<span class="infoline" title="temperature">${thermometer()} ${(tempC * 9 / 5 + 32).toFixed(1)}°F</span>` : "";
+  const here = (state && state.self) || {};
+  const dist = distanceKm(here.lat, here.lon, device.lat, device.lon);
+  const bearing = bearingDeg(here.lat, here.lon, device.lat, device.lon);
+  const range = validFix(here.lat, here.lon) && validFix(device.lat, device.lon) && dist != null && bearing != null
+    ? `${dist.toFixed(1)} km @ ${bearing.toFixed(1)}°` : "";
+  return [
+    `<b>${labelOf(device)}</b>`,
+    `<div class="statusrow"><span title="${device.icon || "user"}">${iconSvg(device.icon || "user")}</span><span title="battery ${device.batteryLevel || "—"}">${batteryIcon(device.batteryLevel)}</span>${relayIcon(device.relayState)}</div>`,
+    temp,
+    `<span class="infoline" title="position">${gpsIcon()} [${lat}, ${lon}]</span>`,
+    `Alt: ${alt}m, Head: ${head}°`,
+    `Spd: ${spd} k/hr`,
+    range
   ].filter(Boolean).join("<br>");
+}
+
+function arrowIcon(up, color) {
+  const d = up ? "M7 14 V4 M3 7 L7 3 L11 7" : "M7 2 V12 M3 9 L7 13 L11 9";
+  return `<svg class="arrow" viewBox="0 0 14 16" fill="none" stroke="${color}" stroke-width="1.8"><path d="${d}"/></svg>`;
+}
+
+function messageArrow(m) {
+  const self = (state && state.self) || {};
+  const sender = String(m.sender || "");
+  const sent = m.outbound || sender === self.id || sender === self.name || sender === self.nickname;
+  const recipient = String(m.recipient || m.to || "");
+  const broadcast = /all devices/i.test(recipient) || m.kind === "bc" || m.bc;
+  const mesh = !!(m.fm || m.mesh || m.hops > 1 || m.hop > 1 || m.via === "mesh");
+  if (sent && broadcast) return arrowIcon(true, "#e0b15a");
+  if (sent && mesh) return arrowIcon(true, "#8eb4d4");
+  if (sent) return arrowIcon(true, "#7dce6a");
+  if (broadcast) return arrowIcon(false, "#e0b15a");
+  if (mesh) return arrowIcon(false, "#8eb4d4");
+  return arrowIcon(false, "#7dce6a");
+}
+
+function otherParty(m) {
+  const self = (state && state.self) || {};
+  const sender = String(m.sender || "");
+  const sent = m.outbound || sender === self.id || sender === self.name || sender === self.nickname;
+  const recipient = String(m.recipient || m.to || "");
+  const broadcast = /all devices/i.test(recipient) || m.kind === "bc" || m.bc;
+  if (sent && broadcast) return {label: "[All Devices]", icon: ""};
+  const other = sent ? recipient : sender;
+  const dev = findDevice(other) || {};
+  return {label: labelOf(other || dev), icon: iconSvg(dev.icon || "user")};
+}
+
+function messageTime(ts) {
+  const s = String(ts || "");
+  if (s.length >= 12) return `${s.slice(2, 4)}/${s.slice(4, 6)} ${s.slice(6, 8)}:${s.slice(8, 10)}:${s.slice(10, 12)}`;
+  return fmtTs(ts);
 }
 
 function clock(ts) {
@@ -522,33 +666,36 @@ function renderTraffic() {
     spark.height = 70 * devicePixelRatio;
     c.clearRect(0, 0, spark.width, spark.height);
     const series = [
-      samples.map(s => s.packetsIn || 0),
-      samples.map(s => s.packetsOut || 0)
+      ["Packets in", samples.map(s => s.packetsIn || 0), "#7dce6a"],
+      ["Packets out", samples.map(s => s.packetsOut || 0), "#8eb4d4"],
+      ["Unknown", samples.map(s => s.unknownPackets || 0), "#e0b15a"]
     ];
-    const max = Math.max(1, ...series.flat());
-    c.fillStyle = "#8d977f";
+    const max = Math.max(1, ...series.flatMap(s => s[1]));
     c.font = `${11 * devicePixelRatio}px sans-serif`;
-    c.fillText(`in ${series[0].at(-1) || 0}`, 8, 16 * devicePixelRatio);
-    c.fillText(`out ${series[1].at(-1) || 0}`, 70 * devicePixelRatio, 16 * devicePixelRatio);
-    c.fillText(String(max), 8, 30 * devicePixelRatio);
-    ["#7dce6a", "#8eb4d4"].forEach((color, idx) => {
-      c.strokeStyle = color;
+    series.forEach((item, idx) => {
+      c.fillStyle = item[2];
+      c.fillText(`${item[0]} ${item[1].at(-1) || 0}`, 8 + idx * 118 * devicePixelRatio, 16 * devicePixelRatio);
+    });
+    series.forEach((item) => {
+      c.strokeStyle = item[2];
       c.lineWidth = 2;
       c.beginPath();
-      series[idx].forEach((v, i) => {
-        const x = (i / Math.max(1, series[idx].length - 1)) * spark.width;
-        const y = spark.height - (v / max) * (spark.height - 36 * devicePixelRatio) - 8;
+      item[1].forEach((v, i) => {
+        const x = (i / Math.max(1, item[1].length - 1)) * spark.width;
+        const y = spark.height - (v / max) * (spark.height - 28 * devicePixelRatio) - 8;
         i ? c.lineTo(x, y) : c.moveTo(x, y);
       });
       c.stroke();
     });
   }
-  const pings = (state && state.pings) || [];
-  document.getElementById("pings").innerHTML = pings.slice(0, 12).map(p => {
+  const pings = ((state && state.pings) || []).filter(p => document.getElementById("showindirect").checked || p.kind === "DIRECT");
+  document.getElementById("pings").innerHTML = pings.map(p => {
     const dev = findDevice(p.id) || {};
     const color = p.kind === "DIRECT" ? "#7dce6a" : "#8eb4d4";
-    const name = labelOf(dev.id ? dev : {id: p.id});
-    return `<div class="ping"><span class="pico" style="color:${color}">${iconSvg(dev.icon || "node")}</span><b>${name}</b><span class="pdot" style="background:${color}"></span><span class="ptime">${clock(p.ts)} · ${p.rssi ?? "—"} dBm</span></div>`;
+    const name = pingLabel(dev, p.id);
+    const fix = validFix(p.lat, p.lon) ? {lat: p.lat, lon: p.lon} : dev;
+    const range = p.kind === "DIRECT" ? rangeText(state.self || {}, fix) : "";
+    return `<div class="ping"><span class="pico" style="color:${color}">${iconSvg(dev.icon || "node")}</span><b>${name}</b><span class="pdot" style="background:${color}"></span><span class="ptime">${clock(p.ts)} · ${p.rssi ?? "—"} dBm${range ? " " + range : ""}</span></div>`;
   }).join("") || "No pings";
 }
 
@@ -573,25 +720,44 @@ async function refresh() {
   }
   document.getElementById("cluster").textContent = (state.cluster || "—").toUpperCase();
   const link = document.getElementById("link");
+  const self = state.self || {};
+  const ble = state.link_name || state.active_radio || "";
+  const shown = self.name ? `${self.name}${ble ? ` [${ble}]` : ""}` : (ble || "—");
   link.innerHTML = state.connected
-    ? `<span class="dot"></span>${state.link_name}<br><span class="live">connected · last heard ${state.last_rx_age ?? 0}s ago</span>`
+    ? `<span class="dot"></span>${shown}<br><span class="live">connected · ${state.last_rx_age ?? 0}s ago</span>`
     : `<span class="dot off"></span>disconnected`;
   document.getElementById("err").textContent = state.connected ? "" : (state.link_name || "");
   const conn = state.conn || {};
-  document.getElementById("hop").textContent = conn.q ? `q ${conn.q}` : "waiting";
+  document.getElementById("devicetime").textContent = `Device Time: ${state.self && state.self.ts ? fmtTs(state.self.ts) : "—"}`;
   document.getElementById("radio").textContent = conn.cfg ? `${conn.net} · ${conn.cfg}` : "NET —";
   renderDevice(state.self, conn);
   const msgs = state.messages || [];
+  const showMsgs = document.getElementById("showmsgs").checked;
   document.getElementById("mcount").textContent = msgs.length;
-  document.getElementById("msgs").innerHTML = msgs.slice(0, 6).map(m =>
-    `<div class="msg"><span class="${m.status === "confirmed" ? "live" : "stale"}">${m.status || ""}</span><b>${m.title || m.priority || "Message"}</b>${m.text || ""}<div class="sub">${labelOf(findDevice(m.sender))} · ${fmtTs(m.ts)}</div></div>`
-  ).join("");
+  document.getElementById("msgs").innerHTML = showMsgs ? msgs.map(m => {
+    const who = otherParty(m);
+    const icon = who.icon ? `<span class="pico">${who.icon}</span>` : "";
+    return `<div class="msg"><span class="${m.status === "confirmed" ? "live" : "stale"}">${m.status || ""}</span><b>${messageArrow(m)}${icon}${who.label}</b>${m.text || m.message || ""}<div class="when">${messageTime(m.ts)}</div></div>`;
+  }).join("") : "";
+  document.getElementById("newmsg").textContent = !showMsgs && msgs.length ? `New messages ${msgs.length}` : "";
   const to = document.getElementById("to");
   const selected = to.value;
-  to.innerHTML = (state.devices || []).filter(d => !d.self).map(d =>
-    `<option value="${d.id}">${labelOf(d)}</option>`).join("");
+  const seen = new Set();
+  const devices = (state.devices || []).filter(d => {
+    if (d.self || !d.id) return false;
+    const key = (d.nickname || d.nick || d.name || d.id).toLowerCase();
+    if (seen.has(d.id) || seen.has(key)) return false;
+    seen.add(d.id);
+    seen.add(key);
+    return true;
+  });
+  devices.sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
+  to.innerHTML = devices.map(d => `<option value="${d.id}">${labelOf(d)}</option>`).join("");
   if (selected) to.value = selected;
-  document.getElementById("send").disabled = !state.connected;
+  to.disabled = document.querySelector("[name=kind]").value === "bc";
+  document.getElementById("send").disabled = !state.connected || Date.now() < sendingUntil;
+  document.getElementById("send").hidden = Date.now() < sendingUntil;
+  document.getElementById("sending").hidden = Date.now() >= sendingUntil;
   renderTraffic();
   const saved = document.getElementById("saved");
   const keep = saved.value;
@@ -608,6 +774,10 @@ document.getElementById("tilesource").onchange = (ev) => {
   tileCache.clear();
   fetch("/api/view", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({lat: view.lat, lon: view.lon, zoom: view.zoom, tilesource: ev.target.value})});
 };
+document.querySelector("[name=kind]").onchange = (ev) => {
+  document.getElementById("to").disabled = ev.target.value === "bc";
+};
+document.getElementById("to").disabled = true;
 document.getElementById("fold-left").onclick = () => {
   document.body.classList.toggle("collapse-left");
   document.getElementById("fold-left").textContent = document.body.classList.contains("collapse-left") ? "›" : "‹";
@@ -654,7 +824,7 @@ canvas.addEventListener("click", (ev) => {
   if (!hit) { selectedId = null; card.hidden = true; return; }
   selectedId = hit.id;
   card.hidden = false;
-  card.innerHTML = `<b>${labelOf(hit)}</b><br>${hit.icon || "user"} · addr ${hit.address || "—"}<br>temp ${hit.temperature ?? "—"} · bat ${hit.batteryLevel || "—"}<br>${hit.lat}, ${hit.lon}<br>alt ${hit.alt || "—"} · hdg ${hit.head || "—"} · spd ${hit.speed || "—"}<br>rssi ${hit.rssi ?? "—"} · ${hit.direct ? "direct" : hit.indirect ? "indirect" : "quiet"}<br>${fmtTs(hit.ts)}`;
+  card.innerHTML = deviceCard(hit);
 });
 canvas.parentElement.addEventListener("wheel", (ev) => {
   ev.preventDefault();
@@ -681,14 +851,29 @@ addEventListener("pointerup", () => {
 });
 document.getElementById("compose").onsubmit = async (ev) => {
   ev.preventDefault();
-  if (!state || !state.connected) return;
+  if (!state || !state.connected || Date.now() < sendingUntil) return;
   const data = Object.fromEntries(new FormData(ev.target));
   data.fm = ev.target.fm.checked;
   data.nodes = true;
   data.expiry = data.kind === "bc" ? 60 : 30;
+  data.outbound = true;
+  sendingUntil = Date.now() + 5000;
+  document.getElementById("send").hidden = true;
+  document.getElementById("sending").hidden = false;
   const res = await fetch("/api/send", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data)});
-  if (!res.ok) alert(await res.text());
+  if (!res.ok) {
+    sendingUntil = 0;
+    document.getElementById("send").hidden = false;
+    document.getElementById("sending").hidden = true;
+    alert(await res.text());
+    return;
+  }
   ev.target.msg.value = "";
+  setTimeout(() => {
+    sendingUntil = 0;
+    document.getElementById("send").hidden = false;
+    document.getElementById("sending").hidden = true;
+  }, 5000);
 };
 </script>
 </body>
