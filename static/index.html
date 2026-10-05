@@ -40,6 +40,9 @@
   h1 { font-size: 22px; letter-spacing: 0.12em; margin: 0; }
   .sub { color: var(--dim); font-size: 12px; margin-bottom: 18px; }
   .k { color: var(--dim); font-size: 11px; letter-spacing: 0.14em; margin: 16px 0 4px; }
+  .head { color: var(--text); font-size: 15px; font-weight: 700; letter-spacing: 0.14em; margin: 4px 0 8px; }
+  form { display: grid; gap: 6px; margin-top: 12px; }
+  label.inline { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .live { color: var(--green); }
   .stale { color: var(--amber); }
   .bad { color: var(--danger); }
@@ -61,7 +64,7 @@
   .msg b { display: block; }
   .msg .when { display: block; font-size: 11px; color: var(--dim); margin-top: 4px; }
   .msg span { float: right; font-size: 12px; }
-  form { display: grid; gap: 6px; margin-top: 12px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   input, select, button, textarea {
     background: #10140e; color: var(--text); border: 1px solid var(--line);
     border-radius: 6px; padding: 7px 8px; font: inherit;
@@ -113,6 +116,7 @@
     <button class="fold" id="fold-left" style="left:8px" type="button">‹</button>
     <button class="fold" id="fold-right" style="right:8px" type="button">›</button>
     <div class="maptools">
+      <label><input type="checkbox" id="keepcentered"> Keep centered</label>
       <label><input type="checkbox" id="meshgraph" checked> Mesh graph</label>
       <label><input type="checkbox" id="mgrs"> MGRS</label>
       <label><input type="checkbox" id="criticalonly"> Critical</label>
@@ -139,24 +143,27 @@
     <canvas id="spark" height="88"></canvas>
   </div>
   <section class="messages">
-    <div class="k">MESSAGES <span id="mcount"></span></div>
-    <label><input type="checkbox" id="showmsgs" checked> Show messages</label>
+    <div class="head">MESSAGES <span id="mcount"></span></div>
+    <label>Filter <select id="msgfilter"><option value="">[All Devices]</option></select></label>
+    <label class="inline"><input type="checkbox" id="showmsgs" checked> Show messages</label>
     <div id="msgs"></div>
     <form id="compose">
-      <select name="kind">
-        <option value="bc">Broadcast</option>
-        <option value="dm">Direct</option>
-      </select>
+      <div class="row2">
+        <select name="kind">
+          <option value="bc">Broadcast</option>
+          <option value="dm">Direct</option>
+        </select>
+        <select name="priority">
+          <option>Low</option><option selected>Normal</option><option>Medium</option><option>High</option><option>Critical</option>
+        </select>
+      </div>
       <select name="to" id="to"></select>
-      <select name="priority">
-        <option>Low</option><option selected>Normal</option><option>Medium</option><option>High</option><option>Critical</option>
-      </select>
       <textarea name="msg" rows="2" placeholder="Letters, digits, space, period, comma"></textarea>
-      <label><input type="checkbox" name="fm"> Force mesh</label>
+      <label class="inline"><input type="checkbox" name="fm"> Force mesh</label>
       <button class="primary" type="submit" id="send" disabled>Send via radio</button>
       <div id="sending" class="spin" hidden></div>
     </form>
-    <div class="k">PINGS</div>
+    <div class="head">PINGS</div>
     <label><input type="checkbox" id="showindirect"> Show indirect</label>
     <div id="pings" class="sub"></div>
   </section>
@@ -367,8 +374,24 @@ function drawMgrs() {
   ctx.restore();
 }
 
+function keepCentered() {
+  const box = document.getElementById("keepcentered");
+  if (!box || !box.checked || !state || !state.self || drag) return;
+  const lat = +state.self.lat, lon = +state.self.lon;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  const scale = 256 * (2 ** view.zoom) * devicePixelRatio;
+  const center = mercator(view.lat, view.lon);
+  const here = mercator(lat, lon);
+  const dx = Math.abs(here.x - center.x) * scale;
+  const dy = Math.abs(here.y - center.y) * scale;
+  if (dx < canvas.width * 0.1 && dy < canvas.height * 0.1) return;
+  view.lat = lat;
+  view.lon = lon;
+}
+
 function draw() {
   resize();
+  keepCentered();
   ctx.fillStyle = "#1a2418";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   drawTiles();
@@ -718,6 +741,10 @@ async function refresh() {
     document.getElementById("tilesource").value = state.tilesource;
     view.tilesRestored = true;
   }
+  if (!view.centerRestored && "keep_centered" in state) {
+    document.getElementById("keepcentered").checked = !!state.keep_centered;
+    view.centerRestored = true;
+  }
   document.getElementById("cluster").textContent = (state.cluster || "—").toUpperCase();
   const link = document.getElementById("link");
   const self = state.self || {};
@@ -732,19 +759,9 @@ async function refresh() {
   document.getElementById("radio").textContent = conn.cfg ? `${conn.net} · ${conn.cfg}` : "NET —";
   renderDevice(state.self, conn);
   const msgs = state.messages || [];
-  const showMsgs = document.getElementById("showmsgs").checked;
-  document.getElementById("mcount").textContent = msgs.length;
-  document.getElementById("msgs").innerHTML = showMsgs ? msgs.map(m => {
-    const who = otherParty(m);
-    const icon = who.icon ? `<span class="pico">${who.icon}</span>` : "";
-    return `<div class="msg"><span class="${m.status === "confirmed" ? "live" : "stale"}">${m.status || ""}</span><b>${messageArrow(m)}${icon}${who.label}</b>${m.text || m.message || ""}<div class="when">${messageTime(m.ts)}</div></div>`;
-  }).join("") : "";
-  document.getElementById("newmsg").textContent = !showMsgs && msgs.length ? `New messages ${msgs.length}` : "";
-  const to = document.getElementById("to");
-  const selected = to.value;
   const seen = new Set();
   const devices = (state.devices || []).filter(d => {
-    if (d.self || !d.id) return false;
+    if (!d.id) return false;
     const key = (d.nickname || d.nick || d.name || d.id).toLowerCase();
     if (seen.has(d.id) || seen.has(key)) return false;
     seen.add(d.id);
@@ -752,7 +769,31 @@ async function refresh() {
     return true;
   });
   devices.sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
-  to.innerHTML = devices.map(d => `<option value="${d.id}">${labelOf(d)}</option>`).join("");
+  const msgfilter = document.getElementById("msgfilter");
+  const keepFilter = msgfilter.value;
+  msgfilter.innerHTML = `<option value="">[All Devices]</option>` + devices.map(d => `<option value="${d.id}">${labelOf(d)}</option>`).join("");
+  if (keepFilter) msgfilter.value = keepFilter;
+  const filter = msgfilter.value;
+  const shownMsgs = filter ? msgs.filter(m => {
+    const sender = String(m.sender || "");
+    const recipient = String(m.recipient || m.to || "");
+    const dev = findDevice(filter) || {id: filter};
+    const keys = [dev.id, dev.name, dev.nickname, dev.nick].filter(Boolean).map(String);
+    const broadcast = /all devices/i.test(recipient) || m.kind === "bc" || m.bc;
+    return !broadcast && (keys.includes(sender) || keys.includes(recipient));
+  }) : msgs;
+  const showMsgs = document.getElementById("showmsgs").checked;
+  document.getElementById("mcount").textContent = shownMsgs.length;
+  document.getElementById("msgs").innerHTML = showMsgs ? shownMsgs.map(m => {
+    const who = otherParty(m);
+    const icon = who.icon ? `<span class="pico">${who.icon}</span>` : "";
+    return `<div class="msg"><span class="${m.status === "confirmed" ? "live" : "stale"}">${m.status || ""}</span><b>${messageArrow(m)}${icon}${who.label}</b>${m.text || m.message || ""}<div class="when">${messageTime(m.ts)}</div></div>`;
+  }).join("") : "";
+  document.getElementById("newmsg").textContent = !showMsgs && shownMsgs.length ? `New messages ${shownMsgs.length}` : "";
+  const to = document.getElementById("to");
+  const selected = to.value;
+  const targets = devices.filter(d => !d.self);
+  to.innerHTML = targets.map(d => `<option value="${d.id}">${labelOf(d)}</option>`).join("");
   if (selected) to.value = selected;
   to.disabled = document.querySelector("[name=kind]").value === "bc";
   document.getElementById("send").disabled = !state.connected || Date.now() < sendingUntil;
@@ -769,6 +810,9 @@ setInterval(refresh, 1000);
 refresh();
 
 document.getElementById("tilesource").value = localStorage.getItem("overlook-tiles") || "esri_topo";
+document.getElementById("keepcentered").onchange = (ev) => {
+  fetch("/api/view", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({lat: view.lat, lon: view.lon, zoom: view.zoom, keep_centered: ev.target.checked})});
+};
 document.getElementById("tilesource").onchange = (ev) => {
   localStorage.setItem("overlook-tiles", ev.target.value);
   tileCache.clear();

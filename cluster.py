@@ -260,6 +260,10 @@ class ClusterStore:
         current.update(body)
         current["key"] = key
         self.messages[key] = current
+        if len(self.messages) > 50:
+            oldest = sorted(self.messages, key=lambda k: str(self.messages[k].get("ts") or ""))[:-50]
+            for item in oldest:
+                self.messages.pop(item, None)
 
     def _patch_status(self, body: dict[str, Any]) -> None:
         key = self._message_key(body)
@@ -296,8 +300,8 @@ class ClusterStore:
             "conn": self.conn,
             "devices": devices,
             "graph": self.graph,
-            "messages": messages[:40],
-            "pings": self.pings[:30],
+            "messages": messages[:50],
+            "pings": self.pings[:50],
             "traffic": self.traffic[-30:],
             "broadcast_recipient": BROADCAST_RECIPIENT,
         }

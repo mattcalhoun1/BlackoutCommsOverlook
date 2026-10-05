@@ -140,6 +140,7 @@ class Handler(BaseHTTPRequestHandler):
             current = session.load()
             body["view"] = current.get("view")
             body["tilesource"] = current.get("tilesource") or "esri_topo"
+            body["keep_centered"] = bool(current.get("keep_centered"))
             body["radios"] = session.public_radios()
             body["active_radio"] = active_radio
             self._send(200, json.dumps(body).encode(), "application/json")
@@ -204,6 +205,8 @@ class Handler(BaseHTTPRequestHandler):
             fields = {"view": {"lat": body.get("lat"), "lon": body.get("lon"), "zoom": body.get("zoom")}}
             if body.get("tilesource"):
                 fields["tilesource"] = body.get("tilesource")
+            if "keep_centered" in body:
+                fields["keep_centered"] = bool(body.get("keep_centered"))
             session.update(**fields)
             self._send(200, b'{"ok":true}', "application/json")
             return
