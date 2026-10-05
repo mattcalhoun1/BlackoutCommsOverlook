@@ -85,7 +85,7 @@ def persist_snapshot() -> None:
 
 def snapshot_loop() -> None:
     while True:
-        time.sleep(8)
+        time.sleep(30)
         try:
             persist_snapshot()
         except Exception:

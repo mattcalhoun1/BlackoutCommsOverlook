@@ -3,19 +3,30 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 SESSION_PATH = DATA / "session.json"
+BACKUP_PATH = DATA / "session.json.bak"
+
+
+def _read(path: Path) -> dict[str, Any] | None:
+    try:
+        current = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return current if isinstance(current, dict) else None
 
 
 def load() -> dict[str, Any]:
-    try:
-        current = json.loads(SESSION_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        current = {}
+    current = _read(SESSION_PATH)
+    if current is None:
+        current = _read(BACKUP_PATH) or {}
+        if current:
+            print(f"session.json unreadable, restored {BACKUP_PATH}")
     radios = current.get("radios")
     if not isinstance(radios, list):
         radios = []
@@ -34,7 +45,15 @@ def load() -> dict[str, Any]:
 
 def save(session: dict[str, Any]) -> None:
     DATA.mkdir(parents=True, exist_ok=True)
-    SESSION_PATH.write_text(json.dumps(session, indent=2), encoding="utf-8")
+    payload = json.dumps(session, indent=2).encode("utf-8")
+    tmp = SESSION_PATH.with_suffix(".json.tmp")
+    with tmp.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if _read(SESSION_PATH) is not None:
+        os.replace(SESSION_PATH, BACKUP_PATH)
+    os.replace(tmp, SESSION_PATH)
 
 
 def update(**fields: Any) -> dict[str, Any]:

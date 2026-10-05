@@ -302,6 +302,7 @@ class ClusterStore:
             "graph": self.graph,
             "messages": messages[:50],
             "pings": self.pings[:50],
+            "neighbors_3m": len({p.get("id") for p in self.pings if p.get("id") and now - float(p.get("at") or 0) <= 180}),
             "traffic": self.traffic[-30:],
             "broadcast_recipient": BROADCAST_RECIPIENT,
         }
