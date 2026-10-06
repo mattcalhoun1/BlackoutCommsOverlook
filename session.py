@@ -14,7 +14,6 @@ else:
     DATA = Path(__file__).resolve().parent / "data"
 
 ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
 SESSION_PATH = DATA / "session.json"
 BACKUP_PATH = DATA / "session.json.bak"
 
