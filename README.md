@@ -1,18 +1,43 @@
 # Overlook
 
-Wall or desktop display for a [Blackout Comms](https://chatters.io) mesh. It connects to one radio over Bluetooth, shows the cluster on a map, and can stay up without grid service once map tiles are cached. The radio keeps the keys. Overlook is only a window.
+Overlook is a free desktop companion for a [Blackout Comms](https://chatters.io) mesh. It connects to one of your radios over Bluetooth and shows the private cluster: device locations, mesh links, pings, traffic, and messages. It runs as a normal Windows or Linux app, and it also works well left up on a monitor. After the map tiles are cached, the view keeps working with no Wi-Fi and no other grid service.
 
 <img width="1920" height="1080" alt="overlook_intro_thumbnail" src="https://github.com/user-attachments/assets/d0ae69af-6f39-4698-a473-f477c6480a5b" />
 
-Overlook requires Blackout Comms firmware and a Blackout Comms device. It speaks the same GATT JSON feed as [Blackout Comms Live](https://github.com/mattcalhoun1/BlackoutCommsLive). It is not a standalone messenger and it requires a Blackout Comms device. It's basically a companion/additional view to a connected Blackout Comms device.
+It is an add-on, not a radio. Overlook requires Blackout Comms firmware and at least one Blackout Comms device. The radio keeps the keys and does the mesh routing. This program is only a local view of that cluster.
 
-If you're using windows: (Download Overlook for Windows)[https://www.offgridcomms.club/overlook/Overlook_Win.zip]
+- Product page: https://chatters.io/overlook
+- Blackout Comms: https://chatters.io
+- Windows build: https://www.offgridcomms.club/overlook/Overlook_Win.zip
+- Source: https://github.com/mattcalhoun1/BlackoutCommsOverlook
 
-Setup notes: https://chatters.io/overlook
+## What it is for
+
+Use it when you want a larger view of the cluster than the phone app. On a desk it is a companion window. In a cabin, shop, or staging area it can stay on a monitor. A Raspberry Pi 5 is enough for that always-on case. Windows is supported with the pre-built zip.
+
+Overlook speaks the same Bluetooth GATT JSON feed as the [Blackout Comms Live](https://github.com/mattcalhoun1/BlackoutCommsLive) app. It scans for a `BC-` device, sends the PIN, and then follows `self`, `devices`, `neighbors`, `location`, `graph`, `message`, `traffic`, and `conn` frames. It cannot join a mesh by itself, and it does not talk to other non-Blackout Comms mesh systems.
+
+## What the screen shows
+
+- Connected radio: name, battery, stealth, relay state, temperature, position, heading, and speed
+- Other devices on a pan and zoom map, with the same icon set as Blackout Comms Live
+- Optional mesh lines, MGRS grid, critical-only filter, and a time filter
+- Direct and indirect pings, with distance and bearing when both positions are known
+- Broadcast and direct messages, sent back out through the connected radio
+- A small packet graph for traffic in, traffic out, and unknown packets
+- Saved radios, so the next start reconnects and restores the last map
+
+## Windows
+
+Unzip and run. WebView2 and a Bluetooth adapter are required. Keep `Overlook.exe` and the `_internal` folder together.
+
+https://www.offgridcomms.club/overlook/Overlook_Win.zip
+
+Saved radios and tiles go to `%LOCALAPPDATA%\Overlook`.
 
 ## Linux
 
-64-bit Raspberry Pi OS or another Linux machine with BlueZ. A Pi Zero 2 W is enough for an HDMI display. The Pi user must be in the `bluetooth` group.
+64-bit Raspberry Pi OS or another Linux machine with BlueZ. The user running Overlook must be in the `bluetooth` group. A Pi 5 can drive the display over HDMI by itself, using kiosk mode.
 
 ```bash
 sudo apt install python3 python3-pip python3-venv bluetooth bluez
@@ -25,19 +50,17 @@ pip install -r requirements.txt
 python3 server.py
 ```
 
-Open http://127.0.0.1:8733. Enter the device name, the 6-character id, and the PIN. The app stores them in `data/session.json` and reconnects on the next start. Tiles are cached under `data/tiles/`.
+Open http://127.0.0.1:8733. Enter a name, the 6-character device id, and the PIN. The app writes `data/session.json` and reconnects on the next start. Tiles cache under `data/tiles/`.
 
-To leave it running on a Pi, copy `overlook.service` to `/etc/systemd/system/`, point `WorkingDirectory` and `ExecStart` at this checkout, then:
+For a Pi that should come back after power loss, copy `overlook.service` to `/etc/systemd/system/`, point `WorkingDirectory` and `ExecStart` at this checkout, then:
 
 ```bash
 sudo systemctl enable --now overlook
 ```
 
-## Windows binary
+## Build the Windows package
 
-The pre-built zip is the normal way to install on Windows. Unzip it, keep `Overlook.exe` and `_internal` together, and run the exe. WebView2 and a Bluetooth adapter are required. Saved radios and tiles go to `%LOCALAPPDATA%\Overlook`.
-
-To build it yourself, use a Windows machine and Python 3.13. A Linux desktop cannot produce this package.
+Build on Windows with Python 3.13. A Linux machine cannot produce this binary, because the Bluetooth library is the Windows build of bleak.
 
 ```bat
 python -m venv .venv
@@ -53,4 +76,14 @@ pyinstaller --noconfirm --windowed --name Overlook --icon overlook.ico ^
   desktop.py
 ```
 
-You'll need everything it generates in the `dist\Overlook` folder. `overlook.ico` must be a real icon file, not a renamed PNG.
+You'll need the whole `dist\Overlook` folder.
+
+## Common questions
+
+Overlook does not replace a Blackout Comms device. It attaches to one.
+
+It does not need an account, a server, or an internet connection after the map tiles for an area have been saved.
+
+The first view of a new area is slow because each tile is downloaded and cached. The same view is read from disk after that.
+
+Disconnect clears the live map and messages. The saved radio name, id, and PIN stay. Tiles stay either way.
