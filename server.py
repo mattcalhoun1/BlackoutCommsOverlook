@@ -15,6 +15,8 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import ssl
+import certifi
 
 import session
 from cluster import ClusterStore
@@ -101,8 +103,12 @@ def tile_bytes(source: str, z: int, y: int, x: int) -> bytes:
         return path.read_bytes()
     if source == "esri_topo" and legacy.exists():
         return legacy.read_bytes()
-    req = urllib.request.Request(url.format(z=z, y=y, x=x), headers={"User-Agent": "Overlook/BlackoutComms"})
-    with urllib.request.urlopen(req, timeout=12) as resp:
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    req = urllib.request.Request(
+        url.format(z=z, y=y, x=x),
+        headers={"User-Agent": "Overlook/BlackoutComms"},
+    )
+    with urllib.request.urlopen(req, timeout=12, context=ctx) as resp:
         data = resp.read()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
