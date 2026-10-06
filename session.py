@@ -6,6 +6,12 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+import sys
+
+if getattr(sys, "frozen", False):
+    DATA = Path(os.environ.get("LOCALAPPDATA", ".")) / "Overlook"
+else:
+    DATA = Path(__file__).resolve().parent / "data"
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
