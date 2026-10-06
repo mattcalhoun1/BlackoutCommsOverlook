@@ -1,50 +1,54 @@
 # Overlook
 
-Linux / Raspberry Pi wall view for a Blackout Comms cluster. It speaks the same GATT JSON feed as Blackout Comms Live. The radio keeps the keys. This process is only a window.
+Wall or desktop display for a [Blackout Comms](https://chatters.io) mesh. It connects to one radio over Bluetooth, shows the cluster on a map, and can stay up without grid service once map tiles are cached. The radio keeps the keys. Overlook is only a window.
 
-## What is real
+Overlook requires Blackout Comms firmware and a Blackout Comms device. It speaks the same GATT JSON feed as [Blackout Comms Live](https://github.com/mattcalhoun1/BlackoutCommsLive). It is not a standalone messenger and it requires a Blackout Comms device. It's basically a companion/additional view to a connected Blackout Comms device.
 
-Taken from `BlackoutCommsLive` `docs/BLE_Interface_Messages.md`:
+If you're using windows: (Download Overlook for Windows)[https://www.offgridcomms.club/overlook/Overlook_Win.zip]
 
-| Object | UUID | Direction |
-|---|---|---|
-| Service | `18aeec00-8c60-411b-b958-78c5049be0f3` | — |
-| TX | `18aeec01-8c60-411b-b958-78c5049be0f3` | app → device, write |
-| RX | `18aeec02-8c60-411b-b958-78c5049be0f3` | device → app, notify or indicate |
+Setup notes: https://chatters.io/overlook
 
-- Scan prefix `BC-`. MTU request 247. PIN is plain text `PIN:<pin>`, not JSON.
-- Device accepts with `success\n` or by starting the JSON feed. Frames are UTF-8, one JSON object per `\n`.
-- Inbound keys, in ingest order: `self`, `devices`, `neighbors`, `location`, `graph`, `sender`, `message`, `traffic`, `messageStatus`, `conn`.
-- Outbound commands: `{"bc":{msg,nodes,priority,expiry}}` and `{"dm":{to,msg,priority,fm,expiry}}`.
-- Graph edges are keyed by mesh address with leading zeros stripped, not by device id.
-- Direct-neighbor flags age out after 10 minutes. `deleted` removes a message.
+## Linux
 
-`samples/session.jsonl` is a fixture in that shape, not a capture from a radio.
-
-## Run the wall view
+64-bit Raspberry Pi OS or another Linux machine with BlueZ. A Pi Zero 2 W is enough for an HDMI display. The Pi user must be in the `bluetooth` group.
 
 ```bash
-cd overlook
+sudo apt install python3 python3-pip python3-venv bluetooth bluez
+sudo usermod -aG bluetooth "$USER"
+git clone https://github.com/mattcalhoun1/BlackoutCommsOverlook.git
+cd BlackoutCommsOverlook
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 python3 server.py
 ```
 
-Open `http://127.0.0.1:8733`. The default transport is a simulator that replays the fixture and then walks a few nodes, so the screen is usable with no adapter.
+Open http://127.0.0.1:8733. Enter the device name, the 6-character id, and the PIN. The app stores them in `data/session.json` and reconnects on the next start. Tiles are cached under `data/tiles/`.
 
-Attach to hardware on the Pi:
+To leave it running on a Pi, copy `overlook.service` to `/etc/systemd/system/`, point `WorkingDirectory` and `ExecStart` at this checkout, then:
 
 ```bash
-pip install -r requirements.txt
-python3 server.py --ble --pin 1234
+sudo systemctl enable --now overlook
 ```
 
-`--tx-newline` appends LF on writes. Current Live builds do not. Leave it off unless your firmware's BLE reader requires it.
+## Windows binary
 
-## Pi kiosk
+The pre-built zip is the normal way to install on Windows. Unzip it, keep `Overlook.exe` and `_internal` together, and run the exe. WebView2 and a Bluetooth adapter are required. Saved radios and tiles go to `%LOCALAPPDATA%\Overlook`.
 
-64-bit Raspberry Pi OS, Pi 4 (4 GB) or Pi 5. BlueZ up, Wi-Fi off if you are using the onboard radio for the long-lived BLE link. A USB adapter on a short extension is the more reliable week-long link.
+To build it yourself, use a Windows machine and Python 3.13. A Linux desktop cannot produce this package.
 
-`overlook.service` is a starting unit. Put the app in `/opt/overlook`, then point a cage or labwc kiosk at `http://127.0.0.1:8733`. Do not put Chromium in the product path if you can avoid it; for a first kiosk, a single Chromium `--kiosk` window is the least work.
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt pywebview pyinstaller
+pyinstaller --noconfirm --windowed --name Overlook --icon overlook.ico ^
+  --add-data "static;static" ^
+  --add-data "overlook.ico;." ^
+  --collect-data certifi ^
+  --hidden-import certifi ^
+  --hidden-import bleak ^
+  --hidden-import winrt ^
+  desktop.py
+```
 
-## Not done
-
-No bench test against a communicator. BlueZ permissions, pairing popups, and whether firmware wants a newline on TX still have to be confirmed on hardware. Map tiles are a local projection, not offline OSM. USB serial (115200 8N1, same JSON) is documented by Live and not implemented here.
+You'll need everything it generates in the `dist\Overlook` folder. `overlook.ico` must be a real icon file, not a renamed PNG.
