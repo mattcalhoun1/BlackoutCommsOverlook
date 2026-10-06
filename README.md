@@ -2,6 +2,8 @@
 
 Wall or desktop display for a [Blackout Comms](https://chatters.io) mesh. It connects to one radio over Bluetooth, shows the cluster on a map, and can stay up without grid service once map tiles are cached. The radio keeps the keys. Overlook is only a window.
 
+<img width="1920" height="1080" alt="overlook_intro_thumbnail" src="https://github.com/user-attachments/assets/d0ae69af-6f39-4698-a473-f477c6480a5b" />
+
 Overlook requires Blackout Comms firmware and a Blackout Comms device. It speaks the same GATT JSON feed as [Blackout Comms Live](https://github.com/mattcalhoun1/BlackoutCommsLive). It is not a standalone messenger and it requires a Blackout Comms device. It's basically a companion/additional view to a connected Blackout Comms device.
 
 If you're using windows: (Download Overlook for Windows)[https://www.offgridcomms.club/overlook/Overlook_Win.zip]
