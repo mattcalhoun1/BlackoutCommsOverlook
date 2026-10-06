@@ -1,6 +1,7 @@
 import threading
 import time
 import urllib.request
+from multiprocessing import freeze_support
 import webview
 import server
 import ctypes
@@ -18,9 +19,7 @@ def paint_icon():
         user32.SendMessageW(hwnd, 0x0080, 1, icon)
         user32.SendMessageW(hwnd, 0x0080, 0, icon)
 
-threading.Thread(target=paint_icon, daemon=True).start()
-webview.start()
-if __name__ == "__main__":
+def main():
     threading.Thread(target=serve, daemon=True).start()
     for _ in range(50):
         try:
@@ -31,3 +30,8 @@ if __name__ == "__main__":
     webview.create_window("Overlook", "http://127.0.0.1:8733", width=1280, height=800)
     threading.Thread(target=paint_icon, daemon=True).start()
     webview.start()
+
+
+if __name__ == "__main__":
+    freeze_support()
+    main()
